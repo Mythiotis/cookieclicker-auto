@@ -96,10 +96,10 @@ A.cfg = {
     AUTO_MARKET: true,
     MARKET_HIRE_BROKERS: true,
     // buy below / sell above, as a fraction of each good's resting value
-    // (fitted by strategy_sim/market_sim.py for a level 10 bank, ~122 $/h per unit
+    // (fitted by strategy_sim/market_sim.py for a level 10 bank, ~129 $/h per unit
     // of stock out of sample; 1 $ = 1 s of your highest raw CpS); index = good id
-    MARKET_BUY_BELOW: [0.3, 0.2, 0.2, 0.1, 0.1, 0.1, 0.1, 0.2, 0.1, 0.2, 0.2, 0.4, 0.3, 0.3, 0.1, 0.3, 0.3],
-    MARKET_SELL_ABOVE: [3.0, 2.0, 2.0, 1.7, 1.2, 1.1, 1.5, 1.5, 1.0, 1.2, 1.1, 1.0, 1.1, 1.0, 1.0, 1.0, 1.0],
+    MARKET_BUY_BELOW: [0.3, 0.2, 0.1, 0.1, 0.1, 0.2, 0.2, 0.4, 0.4, 0.5, 0.3, 0.4, 0.2, 0.4, 0.6, 0.4, 0.5, 0.4],
+    MARKET_SELL_ABOVE: [3.0, 2.5, 2.0, 1.3, 1.5, 1.7, 1.3, 1.3, 1.3, 1.2, 1.1, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
 
     // --- Sugar lumps ---
     AUTO_LUMPS: true,
@@ -841,7 +841,7 @@ function marketTick() {
         var g = M.goodsById[i];
         if (!g.active) continue;
         var rest = M.getRestingVal(i);
-        var lo = Math.max(1, rest * cfg.MARKET_BUY_BELOW[i]), hi = rest * cfg.MARKET_SELL_ABOVE[i];
+        var lo = Math.max(1, rest * (cfg.MARKET_BUY_BELOW[i] || 0.3)), hi = rest * (cfg.MARKET_SELL_ABOVE[i] || 1.0);
         if (g.val >= hi && g.stock > 0) { M.sellGood(i, g.stock); continue; }
         if (g.val <= lo) {
             var room = M.getGoodMaxStock(g) - g.stock;

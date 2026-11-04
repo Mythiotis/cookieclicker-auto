@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import random
 
-N_GOODS = 17
+N_GOODS = 18
 
 
 def resting(i, bank_level):
