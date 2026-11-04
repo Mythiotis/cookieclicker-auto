@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>CCAuto strategy simulation</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+.viz-root{color-scheme:light;--surface-0:#f4f4f2;--surface-1:#fcfcfb;--text-primary:#0b0b0b;--text-secondary:#52514e;--text-muted:#7a7974;
+ --grid:#e4e3df;--axis:#bdbcb6;--series-1:#2a78d6;--series-2:#eb6834;--tip-bg:#0b0b0b;--tip-fg:#fcfcfb;}
+@media (prefers-color-scheme:dark){:root:where(:not([data-theme="light"])) .viz-root{color-scheme:dark;--surface-0:#111110;--surface-1:#1a1a19;
+ --text-primary:#f0efec;--text-secondary:#c3c2b7;--text-muted:#8f8e86;--grid:#2c2c2a;--axis:#4a4a46;--series-1:#3987e5;--series-2:#d95926;--tip-bg:#f0efec;--tip-fg:#1a1a19;}}
+:root[data-theme="dark"] .viz-root{color-scheme:dark;--surface-0:#111110;--surface-1:#1a1a19;--text-primary:#f0efec;--text-secondary:#c3c2b7;
+ --text-muted:#8f8e86;--grid:#2c2c2a;--axis:#4a4a46;--series-1:#3987e5;--series-2:#d95926;--tip-bg:#f0efec;--tip-fg:#1a1a19;}
+body{margin:0}
+.viz-root{background:var(--surface-0);color:var(--text-primary);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh;padding:24px;box-sizing:border-box}
+.wrap{max-width:980px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+h1{font-size:22px;margin:0}h2{font-size:16px;margin:0 0 4px}
+.sub{color:var(--text-secondary);margin:2px 0 0}
+.card{background:var(--surface-1);border-radius:10px;padding:18px 20px;box-shadow:0 0 0 1px var(--grid)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+.tile{background:var(--surface-1);border-radius:10px;padding:12px 14px;box-shadow:0 0 0 1px var(--grid)}
+.tile .k{color:var(--text-secondary);font-size:12px}.tile .v{font-size:17px;font-weight:600;margin-top:2px}
+.legend{display:flex;gap:16px;color:var(--text-secondary);font-size:12px;margin:6px 0 4px;flex-wrap:wrap}
+.legend i{display:inline-block;width:12px;height:3px;border-radius:2px;vertical-align:middle;margin-right:6px}
+svg text{fill:var(--text-secondary);font-size:11px}
+.tip{position:fixed;pointer-events:none;background:var(--tip-bg);color:var(--tip-fg);padding:6px 8px;border-radius:6px;font-size:12px;display:none;max-width:280px;z-index:10}
+details{margin-top:10px;color:var(--text-secondary)}summary{cursor:pointer}
+table{border-collapse:collapse;font-size:12px;margin-top:8px;width:100%}
+td,th{padding:3px 8px;text-align:left;border-bottom:1px solid var(--grid)}th{color:var(--text-secondary);font-weight:600}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.note{color:var(--text-muted);font-size:12px;margin-top:8px}
+</style></head>
+<body><div class="viz-root"><div class="wrap">
+<div><h1>CCAuto strategy simulation</h1>
+<p class="sub">Golden cookie / combo simulator, 32 runs × 2 simulated days per candidate, coordinate descent over 8 strategy dimensions.
+Production is in multiples of base CpS (no Radiant Appetite, buffs, garden or pantheon).</p></div>
+
+<div class="tiles" id="tiles"></div>
+
+<div class="card">
+<h2>How the search climbed to the best strategy</h2>
+<p class="sub">Average production after each step of the search (log scale). Each step tries every option of one dimension and keeps the best.
+Both starting points reach the same strategy.</p>
+<div class="legend" id="leg1"></div>
+<svg id="c1" width="100%" viewBox="0 0 940 360" role="img" aria-label="Line chart of production per search step for two starting points"></svg>
+<details><summary>Table view</summary><table id="t1"></table></details>
+<p class="note">The "medium" scenario (selling/rebuying buildings 100–1000× more expensive) gave identical numbers at every step. Combo gains of ~10⁸× CpS make building prices irrelevant. The search was stopped before the "expensive" scenario.</p>
+</div>
+
+<div class="card">
+<h2>Stock market: profit per good with the fitted thresholds</h2>
+<p class="sub">$ per hour per unit of stock held, on an independent 42-day price run (1 $ = 1 s of your highest raw CpS). Bank level 10.</p>
+<svg id="c2" width="100%" viewBox="0 0 940 330" role="img" aria-label="Bar chart of stock market profit per good"></svg>
+<details><summary>Table view</summary><table id="t2"></table></details>
+</div>
+</div></div>
+<div class="tip" id="tip"></div>
+<script>
+const D = {"runs": [{"scenario": "cheap buildings", "start": "RA+Orbs | elder3 | none | forecast_double@7 | hold=0 | none | loan2=0", "steps": [{"sweep": 1, "dim": "auras", "choice": "('RA', 'BoM')", "value": 63040.0}, {"sweep": 1, "dim": "elder", "choice": "3", "value": 63040.0}, {"sweep": 1, "dim": "garden", "choice": "bakeberry", "value": 188300.0}, {"sweep": 1, "dim": "grimoire", "choice": "forecast_double", "value": 188300.0}, {"sweep": 1, "dim": "combo_thr", "choice": "500.0", "value": 222000.0}, {"sweep": 1, "dim": "hold_gc", "choice": "True", "value": 243200.0}, {"sweep": 1, "dim": "pantheon", "choice": "Godz-Moka-Muri", "value": 49120000.0}, {"sweep": 1, "dim": "loan2", "choice": "False", "value": 49120000.0}, {"sweep": 2, "dim": "auras", "choice": "('RA', 'BoM')", "value": 49120000.0}, {"sweep": 2, "dim": "elder", "choice": "1", "value": 64270000.0}, {"sweep": 2, "dim": "garden", "choice": "whiskerbloom", "value": 139800000.0}, {"sweep": 2, "dim": "grimoire", "choice": "forecast_double", "value": 139800000.0}, {"sweep": 2, "dim": "combo_thr", "choice": "500.0", "value": 139800000.0}, {"sweep": 2, "dim": "hold_gc", "choice": "False", "value": 330700000.0}, {"sweep": 2, "dim": "pantheon", "choice": "Godz-Moka-Muri", "value": 330700000.0}, {"sweep": 2, "dim": "loan2", "choice": "False", "value": 330700000.0}]}, {"scenario": "cheap buildings", "start": "RA+Flight | elder3 | none | forecast_double@7 | hold=0 | Godz-Moka-Muri | loan2=0", "steps": [{"sweep": 1, "dim": "auras", "choice": "('RA', 'BoM')", "value": 36420000.0}, {"sweep": 1, "dim": "elder", "choice": "3", "value": 36420000.0}, {"sweep": 1, "dim": "garden", "choice": "whiskerbloom", "value": 69900000.0}, {"sweep": 1, "dim": "grimoire", "choice": "forecast_double", "value": 69900000.0}, {"sweep": 1, "dim": "combo_thr", "choice": "500.0", "value": 97040000.0}, {"sweep": 1, "dim": "hold_gc", "choice": "True", "value": 98450000.0}, {"sweep": 1, "dim": "pantheon", "choice": "Godz-Moka-Muri", "value": 98450000.0}, {"sweep": 1, "dim": "loan2", "choice": "False", "value": 98450000.0}, {"sweep": 2, "dim": "auras", "choice": "('RA', 'BoM')", "value": 98450000.0}, {"sweep": 2, "dim": "elder", "choice": "1", "value": 139800000.0}, {"sweep": 2, "dim": "garden", "choice": "whiskerbloom", "value": 139800000.0}, {"sweep": 2, "dim": "grimoire", "choice": "forecast_double", "value": 139800000.0}, {"sweep": 2, "dim": "combo_thr", "choice": "500.0", "value": 139800000.0}, {"sweep": 2, "dim": "hold_gc", "choice": "False", "value": 330700000.0}, {"sweep": 2, "dim": "pantheon", "choice": "Godz-Moka-Muri", "value": 330700000.0}, {"sweep": 2, "dim": "loan2", "choice": "False", "value": 330700000.0}]}], "market": [{"good": "Farm", "resting": 19, "buy": 0.3, "sell": 3.0, "fit": 7.526, "test": 7.372}, {"good": "Mine", "resting": 29, "buy": 0.2, "sell": 2.0, "fit": 7.261, "test": 7.314}, {"good": "Factory", "resting": 39, "buy": 0.2, "sell": 2.0, "fit": 7.778, "test": 7.538}, {"good": "Bank", "resting": 49, "buy": 0.1, "sell": 1.7, "fit": 7.617, "test": 7.146}, {"good": "Temple", "resting": 59, "buy": 0.1, "sell": 1.2, "fit": 7.852, "test": 7.209}, {"good": "Wizard tower", "resting": 69, "buy": 0.1, "sell": 1.1, "fit": 8.384, "test": 7.296}, {"good": "Shipment", "resting": 79, "buy": 0.1, "sell": 1.5, "fit": 8.098, "test": 7.749}, {"good": "Alchemy lab", "resting": 89, "buy": 0.2, "sell": 1.5, "fit": 7.545, "test": 7.629}, {"good": "Portal", "resting": 99, "buy": 0.1, "sell": 1.0, "fit": 8.065, "test": 7.83}, {"good": "Time machine", "resting": 109, "buy": 0.2, "sell": 1.2, "fit": 8.763, "test": 7.123}, {"good": "Antimatter", "resting": 119, "buy": 0.2, "sell": 1.1, "fit": 8.069, "test": 7.866}, {"good": "Prism", "resting": 129, "buy": 0.4, "sell": 1.0, "fit": 7.12, "test": 7.314}, {"good": "Chancemaker", "resting": 139, "buy": 0.3, "sell": 1.1, "fit": 7.345, "test": 6.687}, {"good": "Fractal engine", "resting": 149, "buy": 0.3, "sell": 1.0, "fit": 7.562, "test": 7.635}, {"good": "Javascript console", "resting": 159, "buy": 0.1, "sell": 1.0, "fit": 7.765, "test": 7.023}, {"good": "Idleverse", "resting": 169, "buy": 0.3, "sell": 1.0, "fit": 6.403, "test": 5.675}, {"good": "Cortex baker", "resting": 179, "buy": 0.3, "sell": 1.0, "fit": 6.945, "test": 6.121}]};
+const tip = document.getElementById('tip');
+function showTip(e, html){tip.innerHTML=html;tip.style.display='block';
+ const x=Math.min(e.clientX+14, innerWidth-300); tip.style.left=x+'px'; tip.style.top=(e.clientY+14)+'px';}
+function hideTip(){tip.style.display='none';}
+const NS='http://www.w3.org/2000/svg';
+function el(tag, attrs, parent){const n=document.createElementNS(NS,tag);for(const k in attrs)n.setAttribute(k,attrs[k]);if(parent)parent.appendChild(n);return n;}
+const fmt = v => { const e=Math.floor(Math.log10(v)); return (v/10**e).toFixed(1)+'e'+e; };
+
+// tiles
+const best = D.runs[0].steps[D.runs[0].steps.length-1];
+const tiles = [['Average production', fmt(best.value)+' × base CpS'],['Dragon auras','Radiant Appetite + Breath of Milk'],
+ ['Pantheon','Godzamok · Mokalsium · Muridal'],['Garden','Whiskerbloom on clay'],['Grimoire','Forecast + double cast at ×500'],
+ ['Elder state','Stage 1 (One mind)']];
+document.getElementById('tiles').innerHTML = tiles.map(t=>`<div class="tile"><div class="k">${t[0]}</div><div class="v">${t[1]}</div></div>`).join('');
+
+// chart 1
+(function(){
+ const svg=document.getElementById('c1'), W=940,H=360,m={l:56,r:150,t:12,b:58};
+ const series=D.runs.map((r,i)=>({name: i==0?'Start: Dragon Orbs, no Godzamok':'Start: Dragonflight + Godzamok', color:`var(--series-${i+1})`, steps:r.steps}));
+ const n=series[0].steps.length, lo=4, hi=9;
+ const x=i=>m.l+(W-m.l-m.r)*i/(n-1), y=v=>m.t+(H-m.t-m.b)*(1-(Math.log10(v)-lo)/(hi-lo));
+ for(let e=lo;e<=hi;e++){el('line',{x1:m.l,x2:W-m.r,y1:y(10**e),y2:y(10**e),stroke:'var(--grid)'},svg);
+  const t=el('text',{x:m.l-8,y:y(10**e)+4,'text-anchor':'end'},svg);t.textContent='10'+String(e).replace(/\d/g,d=>'⁰¹²³⁴⁵⁶⁷⁸⁹'[d]);}
+ el('line',{x1:m.l,x2:W-m.r,y1:H-m.b,y2:H-m.b,stroke:'var(--axis)'},svg);
+ series[0].steps.forEach((s,i)=>{const t=el('text',{x:x(i),y:H-m.b+14,'text-anchor':'end',transform:`rotate(-40 ${x(i)} ${H-m.b+14})`},svg);t.textContent=s.dim;});
+ const sep=x(7.5); el('line',{x1:sep,x2:sep,y1:m.t,y2:H-m.b,stroke:'var(--axis)','stroke-dasharray':'3 3'},svg);
+ let t=el('text',{x:x(0),y:m.t+10},svg);t.textContent='sweep 1';t=el('text',{x:x(8),y:m.t+10},svg);t.textContent='sweep 2';
+ const leg=document.getElementById('leg1');
+ series.forEach((s,si)=>{
+  leg.innerHTML+=`<span><i style="background:${s.color}"></i>${s.name}</span>`;
+  el('path',{d:s.steps.map((p,i)=>(i?'L':'M')+x(i)+' '+y(p.value)).join(''),fill:'none',stroke:s.color,'stroke-width':2,'stroke-linejoin':'round'},svg);
+  s.steps.forEach((p,i)=>{
+   el('circle',{cx:x(i),cy:y(p.value),r:4,fill:s.color,stroke:'var(--surface-1)','stroke-width':2},svg);
+   const hit=el('circle',{cx:x(i),cy:y(p.value),r:12,fill:'transparent'},svg);
+   hit.addEventListener('mousemove',e=>showTip(e,`<b>${s.name}</b><br>sweep ${p.sweep} · ${p.dim} → ${p.choice}<br>${fmt(p.value)} × base CpS`));
+   hit.addEventListener('mouseleave',hideTip);
+  });
+ });
+ const last=series[0].steps[n-1]; const lt=el('text',{x:x(n-1)+10,y:y(last.value)+4},svg);
+ lt.textContent=fmt(last.value)+' (both)'; lt.style.fill='var(--text-primary)';
+ // biggest jumps, labelled
+ [['pantheon',0,'Godzamok'],['garden',1,'Whiskerbloom'],['hold_gc',1,'pop at once']].forEach(([dim,sweepIdx,label])=>{
+  const i=series[0].steps.findIndex((p,k)=>p.dim==dim && (k>=8)==(sweepIdx==1)); if(i<0)return;
+  const below = dim=='pantheon';
+  const tt=el('text',{x:x(i)+(below?8:0),y:y(series[0].steps[i].value)+(below?18:-10),'text-anchor':below?'start':'middle'},svg); tt.textContent=label;});
+ // table
+ let h='<tr><th>step</th><th>dimension</th>'+series.map(s=>`<th>${s.name}</th><th class="n">value</th>`).join('')+'</tr>';
+ for(let i=0;i<n;i++) h+=`<tr><td>${series[0].steps[i].sweep}.${i%8+1}</td><td>${series[0].steps[i].dim}</td>`+series.map(s=>`<td>${s.steps[i].choice}</td><td class="n">${fmt(s.steps[i].value)}</td>`).join('')+'</tr>';
+ document.getElementById('t1').innerHTML=h;
+})();
+
+// chart 2
+(function(){
+ const svg=document.getElementById('c2'), W=940,H=330,m={l:44,r:12,t:12,b:96};
+ const M=D.market, n=M.length, max=9, bw=(W-m.l-m.r)/n;
+ const y=v=>m.t+(H-m.t-m.b)*(1-v/max);
+ for(let v=0;v<=max;v+=3){el('line',{x1:m.l,x2:W-m.r,y1:y(v),y2:y(v),stroke:'var(--grid)'},svg);
+  const t=el('text',{x:m.l-8,y:y(v)+4,'text-anchor':'end'},svg);t.textContent=v;}
+ M.forEach((g,i)=>{
+  const x0=m.l+i*bw+2, w=bw-4, top=y(g.test), base=y(0), r=Math.min(4,w/2);
+  el('path',{d:`M${x0} ${base}V${top+r}Q${x0} ${top} ${x0+r} ${top}H${x0+w-r}Q${x0+w} ${top} ${x0+w} ${top+r}V${base}Z`,fill:'var(--series-1)'},svg);
+  const hit=el('rect',{x:m.l+i*bw,y:m.t,width:bw,height:H-m.t-m.b,fill:'transparent'},svg);
+  hit.addEventListener('mousemove',e=>showTip(e,`<b>${g.good}</b> (resting $${g.resting})<br>buy below ${g.buy}× = $${Math.max(1,g.resting*g.buy).toFixed(0)}, sell above ${g.sell}× = $${(g.resting*g.sell).toFixed(0)}<br>test ${g.test.toFixed(2)} $/h · fit ${g.fit.toFixed(2)} $/h per unit`));
+  hit.addEventListener('mouseleave',hideTip);
+  const t=el('text',{x:x0+w/2,y:H-m.b+12,'text-anchor':'end',transform:`rotate(-45 ${x0+w/2} ${H-m.b+12})`},svg);t.textContent=g.good;
+ });
+ el('line',{x1:m.l,x2:W-m.r,y1:y(0),y2:y(0),stroke:'var(--axis)'},svg);
+ const tot=M.reduce((a,g)=>a+g.test,0);
+ const tt=el('text',{x:W-m.r,y:m.t+10,'text-anchor':'end'},svg); tt.textContent=`total ${tot.toFixed(0)} $/h per unit held in every good`; tt.style.fill='var(--text-primary)';
+ document.getElementById('t2').innerHTML='<tr><th>good (building)</th><th class="n">resting $</th><th class="n">buy below</th><th class="n">sell above</th><th class="n">$/h fit</th><th class="n">$/h test</th></tr>'+
+  M.map(g=>`<tr><td>${g.good}</td><td class="n">${g.resting}</td><td class="n">${g.buy}×</td><td class="n">${g.sell}×</td><td class="n">${g.fit.toFixed(2)}</td><td class="n">${g.test.toFixed(2)}</td></tr>`).join('');
+})();
+</script></body></html>

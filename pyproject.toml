@@ -1,0 +1,12 @@
+[project]
+name = "cookieclicker-auto"
+version = "0.1.0"
+description = "Cookie Clicker automation script and the strategy simulator behind it"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "playwright>=1.64.1",
+]

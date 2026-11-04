@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CCAuto · Cookie Clicker on autopilot</title>
+<meta name="description" content="A fan-made, fully active late-game automation script for Cookie Clicker, with its strategy chosen by simulation.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍪</text></svg>">
+<style>
+:root{
+  --bg:#fff8ef; --card:#fffdf9; --ink:#3b2a1e; --ink-2:#6e5646; --muted:#9a8574;
+  --dough:#f2c98a; --crust:#c98a45; --choc:#5a3622; --accent:#e0703a; --mint:#3fa98a;
+  --line:#efdcc5; --shadow:0 2px 0 #ead3b6, 0 10px 30px -12px rgba(120,70,30,.25);
+  --code:#2d1f16; --code-ink:#fbe9d2;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#1c1410; --card:#251b15; --ink:#f6e7d6; --ink-2:#d6bfa8; --muted:#a58c77;
+  --dough:#c99a5c; --crust:#a8703a; --choc:#f0c78f; --accent:#f08a55; --mint:#5cc4a4;
+  --line:#3a2b21; --shadow:0 2px 0 #120c09, 0 10px 30px -12px rgba(0,0,0,.6);
+  --code:#130d0a; --code-ink:#fbe9d2;
+}}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 ui-rounded,"SF Pro Rounded","Nunito","Segoe UI",system-ui,sans-serif}
+a{color:var(--accent)}
+.wrap{max-width:980px;margin:0 auto;padding:0 20px}
+nav{display:flex;justify-content:space-between;align-items:center;padding:18px 0}
+nav .brand{font-weight:800;font-size:20px;text-decoration:none;color:var(--ink);display:flex;gap:8px;align-items:center}
+nav .links a{margin-left:18px;text-decoration:none;color:var(--ink-2);font-weight:600}
+nav .links a:hover{color:var(--accent)}
+
+/* hero */
+.hero{display:grid;grid-template-columns:1.2fr .8fr;gap:30px;align-items:center;padding:40px 0 30px}
+.hero h1{font-size:clamp(34px,5vw,54px);line-height:1.05;margin:0 0 14px;letter-spacing:-.02em}
+.hero h1 span{color:var(--accent)}
+.hero p{font-size:18px;color:var(--ink-2);margin:0 0 22px}
+.btns{display:flex;gap:12px;flex-wrap:wrap}
+.btn{display:inline-flex;gap:8px;align-items:center;border:0;cursor:pointer;font:inherit;font-weight:700;padding:12px 20px;border-radius:999px;text-decoration:none;transition:transform .15s}
+.btn:hover{transform:translateY(-2px)}
+.btn.primary{background:var(--accent);color:#fff;box-shadow:0 4px 0 #b4542a}
+.btn.ghost{background:var(--card);color:var(--ink);box-shadow:var(--shadow)}
+
+/* the big cookie (pure CSS, no game art) */
+.cookie-stage{display:grid;place-items:center;position:relative;min-height:300px}
+.cookie{width:250px;height:250px;border-radius:50%;position:relative;cursor:pointer;
+  background:radial-gradient(circle at 35% 30%,#f8dca8 0 20%,var(--dough) 45%,var(--crust) 100%);
+  box-shadow:inset -14px -18px 0 rgba(120,70,30,.25),0 18px 40px -14px rgba(120,70,30,.5);
+  animation:bob 4s ease-in-out infinite;transition:transform .08s}
+.cookie:active{transform:scale(.94)}
+.chip{position:absolute;background:#5a3622;border-radius:40% 55% 45% 60%;box-shadow:inset -3px -3px 0 rgba(0,0,0,.25)}
+@keyframes bob{50%{translate:0 -10px}}
+.plus{position:absolute;font-weight:800;color:var(--accent);pointer-events:none;animation:up 1s ease-out forwards}
+@keyframes up{to{transform:translateY(-70px);opacity:0}}
+.golden{position:absolute;width:46px;height:46px;border-radius:50%;cursor:pointer;
+  background:radial-gradient(circle at 35% 30%,#fff6c2,#f3c331 55%,#c7901a);box-shadow:0 0 18px #f5cf4a;
+  animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{50%{transform:scale(1.15) rotate(12deg)}}
+.counter{position:absolute;bottom:0;font-weight:800;color:var(--ink-2);font-size:14px}
+
+section{padding:46px 0}
+h2{font-size:30px;margin:0 0 6px;letter-spacing:-.01em}
+.lead{color:var(--ink-2);margin:0 0 24px;max-width:680px}
+
+/* steps */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;counter-reset:s}
+.step{background:var(--card);border-radius:20px;padding:22px;box-shadow:var(--shadow);position:relative}
+.step::before{counter-increment:s;content:counter(s);position:absolute;top:-14px;left:18px;width:30px;height:30px;border-radius:50%;
+  background:var(--accent);color:#fff;font-weight:800;display:grid;place-items:center}
+.step h3{margin:6px 0 6px;font-size:18px}
+.step p{margin:0;color:var(--ink-2);font-size:15px}
+.bookmarklet{display:inline-block;margin-top:12px;padding:8px 14px;border-radius:12px;background:var(--dough);color:#3b2a1e;font-weight:800;text-decoration:none;border:2px dashed var(--crust);cursor:grab}
+
+pre{background:var(--code);color:var(--code-ink);border-radius:14px;padding:14px 16px;overflow:auto;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;margin:0}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em}
+p code,li code,td code{background:var(--line);padding:1px 6px;border-radius:6px}
+
+/* features */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.feat{background:var(--card);border-radius:20px;padding:20px;box-shadow:var(--shadow)}
+.feat .ic{font-size:28px}
+.feat h3{margin:6px 0 4px;font-size:17px}
+.feat p{margin:0;color:var(--ink-2);font-size:15px}
+
+/* strategy */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:18px}
+.tile{background:var(--card);border-radius:16px;padding:14px;box-shadow:var(--shadow)}
+.tile .k{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+.tile .v{font-weight:800;margin-top:2px}
+.frame{background:var(--card);border-radius:20px;box-shadow:var(--shadow);overflow:hidden}
+.frame iframe{width:100%;height:1380px;border:0;display:block}
+
+table{border-collapse:collapse;width:100%;background:var(--card);border-radius:16px;overflow:hidden;box-shadow:var(--shadow)}
+td,th{padding:10px 14px;text-align:left;border-bottom:1px solid var(--line);font-size:15px}
+th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+tr:last-child td{border-bottom:0}
+
+.notes{display:grid;gap:12px}
+.note{background:var(--card);border-left:5px solid var(--mint);border-radius:12px;padding:12px 16px;box-shadow:var(--shadow)}
+.note.warn{border-left-color:var(--accent)}
+footer{padding:40px 0 60px;color:var(--muted);font-size:14px;text-align:center}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:999px;font-weight:700;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.on{opacity:1}
+@media (max-width:760px){.hero{grid-template-columns:1fr}.steps{grid-template-columns:1fr}nav .links{display:none}}
+@media (prefers-reduced-motion:reduce){.cookie,.golden{animation:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <a class="brand" href="#">🍪 CCAuto</a>
+  <div class="links"><a href="#install">Install</a><a href="#features">Features</a><a href="#strategy">Strategy</a><a href="#commands">Commands</a><a id="repoLink" href="#">GitHub</a></div>
+</nav>
+
+<header class="hero">
+  <div>
+    <h1>Your cookies,<br><span>on autopilot.</span></h1>
+    <p>A fully active late-game script for Cookie Clicker. It clicks, predicts every spell before casting it, stacks combos, gardens, trades stocks and switches seasons. The strategy wasn't guessed: a simulator picked it.</p>
+    <div class="btns">
+      <a class="btn primary" href="#install">🍪 Get started</a>
+      <a class="btn ghost" href="results.html">📈 See the simulation</a>
+    </div>
+  </div>
+  <div class="cookie-stage" id="stage">
+    <div class="cookie" id="cookie" title="click me"></div>
+    <div class="counter" id="counter">0 cookies</div>
+  </div>
+</header>
+
+<section id="install">
+  <h2>Install in three steps</h2>
+  <p class="lead">Works on the web version (tested on 2.058). Keep the game in its own visible window: browsers slow down timers in background tabs.</p>
+  <div class="steps">
+    <div class="step"><h3>Open the game</h3><p>Load <a href="https://orteil.dashnet.org/cookieclicker/" target="_blank" rel="noopener">Cookie Clicker</a> and wait for your save to appear.</p></div>
+    <div class="step"><h3>Load the script</h3><p>Drag this to your bookmarks bar and click it on the game page:</p>
+      <a class="bookmarklet" id="bm" href="#">🍪 CCAuto</a>
+      <p style="margin-top:10px">…or <a href="#" id="copyBtn">copy the script</a> and paste it into the console (F12).</p></div>
+    <div class="step"><h3>Lean back</h3><p>A small panel appears bottom left. Change any setting live through <code>CCAuto.cfg</code>, and stop it with <code>CCAuto.stop()</code>.</p></div>
+  </div>
+</section>
+
+<section id="features">
+  <h2>What it does</h2>
+  <p class="lead">One coordinator instead of a pile of timers, so nothing fights over your bank.</p>
+  <div class="grid">
+    <div class="feat"><div class="ic">👆</div><h3>10 clicks per second</h3><p>Time-based clicking, so the rate stays even when timers jitter. Every golden cookie, wrath cookie and reindeer is popped.</p></div>
+    <div class="feat"><div class="ic">🔮</div><h3>Spells it can predict</h3><p>Force the Hand of Fate is deterministic per save. The script replays the game's RNG, casts only into combos, skips bad outcomes with cheap spells and double casts by selling Wizard towers.</p></div>
+    <div class="feat"><div class="ic">💥</div><h3>Godzamok stacking</h3><p>During Click frenzy it sells and rebuys cheap buildings in rounds. Each round adds +1% click power per building, ×301 in testing.</p></div>
+    <div class="feat"><div class="ic">🏗️</div><h3>Smart shopping</h3><p>Buildings and upgrades are ranked by payback time, using the CpS each one would really add (synergies, kittens and clicks included). A reserve stays in the bank for Lucky! and combos.</p></div>
+    <div class="feat"><div class="ic">🐉</div><h3>Krumblor &amp; Pantheon</h3><p>Trains the dragon, sets the simulated-best auras once, and slots Godzamok, Mokalsium and Muridal.</p></div>
+    <div class="feat"><div class="ic">🌱</div><h3>Garden research</h3><p>Breeds all 34 seeds with proper layouts, plants only when seeds are cheap, then fills the plot with Whiskerbloom.</p></div>
+    <div class="feat"><div class="ic">📈</div><h3>Stock market</h3><p>Thresholds per good, fitted on a port of the game's price model: about 123 $/h for every unit of stock held, checked on a separate price run.</p></div>
+    <div class="feat"><div class="ic">🎃</div><h3>Seasons</h3><p>Collects Valentine's, Christmas, Easter and Halloween drops, then settles in the season with the best permanent boost.</p></div>
+    <div class="feat"><div class="ic">🐛</div><h3>Gentle with wrinklers</h3><p>Wrinklers keep eating (and multiplying) your cookies. They're popped only for season drops, never the shiny ones.</p></div>
+  </div>
+</section>
+
+<section id="strategy">
+  <h2>The strategy, by simulation</h2>
+  <p class="lead">A Python simulator built from the game's source tried every combination of auras, pantheon, elder state, garden and spell timing over 32 simulated runs of 2 days each. The winner:</p>
+  <div class="tiles">
+    <div class="tile"><div class="k">Average production</div><div class="v">3.3·10⁸ × base CpS</div></div>
+    <div class="tile"><div class="k">Dragon auras</div><div class="v">Radiant Appetite + Breath of Milk</div></div>
+    <div class="tile"><div class="k">Pantheon</div><div class="v">Godzamok · Mokalsium · Muridal</div></div>
+    <div class="tile"><div class="k">Garden</div><div class="v">Whiskerbloom on clay</div></div>
+    <div class="tile"><div class="k">Grimoire</div><div class="v">Forecast + double cast at ×500</div></div>
+    <div class="tile"><div class="k">Elder state</div><div class="v">Stage 1 (One mind)</div></div>
+  </div>
+  <div class="frame"><iframe src="results.html" title="Simulation results" loading="lazy"></iframe></div>
+</section>
+
+<section id="commands">
+  <h2>Console commands</h2>
+  <p class="lead">Everything lives on <code>window.CCAuto</code>.</p>
+  <table>
+    <tr><th>Command</th><th>What it does</th></tr>
+    <tr><td><code>CCAuto.stop()</code> / <code>CCAuto.start()</code></td><td>Pause and resume everything</td></tr>
+    <tr><td><code>CCAuto.status()</code></td><td>Print the panel's state</td></tr>
+    <tr><td><code>CCAuto.forecast(10)</code></td><td>The next 10 Force the Hand of Fate outcomes</td></tr>
+    <tr><td><code>CCAuto.snapshot()</code></td><td>Your save's numbers as JSON, for re-running the simulator</td></tr>
+    <tr><td><code>CCAuto.popWrinklers()</code></td><td>Pop all non-shiny wrinklers (before ascending)</td></tr>
+    <tr><td><code>CCAuto.cfg.GRIMOIRE = 'off'</code></td><td>Any setting can be changed live</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>Good to know</h2>
+  <div class="notes">
+    <div class="note warn"><b>Dragon Orbs and Godzamok don't mix.</b> Every sale grants Godzamok's buff before the game checks Orbs' "no buffs" rule, so the wish never happens. The script warns you if you configure both.</div>
+    <div class="note"><b>Double casting needs about 600+ Wizard towers</b> at tower level 10. With fewer, the script waits instead of wasting magic.</div>
+    <div class="note"><b>Elder stage 1</b> can't be reached once you own Communal brainsweep or Elder Pact. In that case set <code>CCAuto.cfg.ELDER_STAGE = 3</code>.</div>
+    <div class="note"><b>Tune it to your save:</b> run <code>copy(JSON.stringify(CCAuto.snapshot()))</code>, save it as <code>snapshot.json</code>, then <code>uv run strategy_sim/run_strategies.py snapshot.json</code>.</div>
+  </div>
+</section>
+
+<footer>
+  Made with 🍪 by a fan. Cookie Clicker is made by Orteil &amp; Opti (DashNet). This project isn't affiliated with them.<br>
+  Use automation on your own save; it's your cookies.
+</footer>
+</div>
+<div class="toast" id="toast">Copied! Paste it into the game console 🍪</div>
+
+<script>
+// --- links that depend on where the site is hosted ---
+const base = location.href.replace(/[#?].*$/, '').replace(/index\.html$/, '');
+const scriptUrl = base + 'cookie_auto.js';
+document.getElementById('bm').href =
+  "javascript:(function(){if(window.Game&&Game.LoadMod){Game.LoadMod('" + scriptUrl + "?'+Date.now());}else{alert('Open Cookie Clicker first');}})();";
+const m = location.hostname.match(/^([^.]+)\.github\.io$/);
+const repo = location.pathname.split('/').filter(Boolean)[0];
+document.getElementById('repoLink').href = m ? `https://github.com/${m[1]}/${repo || ''}` : '#';
+
+const toast = document.getElementById('toast');
+document.getElementById('copyBtn').addEventListener('click', async e => {
+  e.preventDefault();
+  try {
+    const txt = await (await fetch(scriptUrl)).text();
+    await navigator.clipboard.writeText(txt);
+    toast.textContent = 'Copied! Paste it into the game console 🍪';
+  } catch (err) { toast.textContent = 'Could not copy, open cookie_auto.js instead'; }
+  toast.classList.add('on'); setTimeout(() => toast.classList.remove('on'), 2200);
+});
+
+// --- a tiny playable cookie ---
+const cookie = document.getElementById('cookie'), stage = document.getElementById('stage'), counter = document.getElementById('counter');
+[[22,30,26],[60,22,20],[40,58,30],[70,62,22],[25,70,16],[52,40,14],[78,40,14]].forEach(([x,y,s]) => {
+  const c = document.createElement('div'); c.className = 'chip';
+  Object.assign(c.style, {left:x+'%', top:y+'%', width:s+'px', height:s*.85+'px'}); cookie.appendChild(c);
+});
+let n = 0, mult = 1;
+function plus(x, y, txt) {
+  const p = document.createElement('div'); p.className = 'plus'; p.textContent = txt;
+  p.style.left = x + 'px'; p.style.top = y + 'px'; stage.appendChild(p); setTimeout(() => p.remove(), 1000);
+}
+cookie.addEventListener('click', e => {
+  n += mult; counter.textContent = n.toLocaleString() + ' cookies';
+  const r = stage.getBoundingClientRect(); plus(e.clientX - r.left, e.clientY - r.top, '+' + mult);
+});
+function spawnGolden() {
+  const g = document.createElement('div'); g.className = 'golden'; g.title = 'a golden cookie!';
+  g.style.left = (10 + Math.random() * 75) + '%'; g.style.top = (5 + Math.random() * 70) + '%';
+  g.addEventListener('click', () => {
+    mult *= 7; plus(g.offsetLeft, g.offsetTop, 'Frenzy ×7!'); g.remove();
+    setTimeout(() => { mult = Math.max(1, mult / 7); }, 7000);
+  });
+  stage.appendChild(g); setTimeout(() => g.remove(), 6000);
+}
+setInterval(spawnGolden, 9000); setTimeout(spawnGolden, 2500);
+</script>
+</body>
+</html>

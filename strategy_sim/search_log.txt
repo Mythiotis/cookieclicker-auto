@@ -1,0 +1,62 @@
+== scenario: cheap buildings {'tower_price_s': 0.01, 'top_building_price_s': 10, 'godz_batch_price_s': 1}
+  start: RA+Orbs | elder3 | none | forecast_double@7 | hold=0 | none | loan2=0
+  sweep 1 auras      -> ('RA', 'BoM')                6.304e+04
+  sweep 1 elder      -> 3                            6.304e+04
+  sweep 1 garden     -> bakeberry                    1.883e+05
+  sweep 1 grimoire   -> forecast_double              1.883e+05
+  sweep 1 combo_thr  -> 500.0                        2.22e+05
+  sweep 1 hold_gc    -> True                         2.432e+05
+  sweep 1 pantheon   -> Godz-Moka-Muri               4.912e+07
+  sweep 1 loan2      -> False                        4.912e+07
+  sweep 2 auras      -> ('RA', 'BoM')                4.912e+07
+  sweep 2 elder      -> 1                            6.427e+07
+  sweep 2 garden     -> whiskerbloom                 1.398e+08
+  sweep 2 grimoire   -> forecast_double              1.398e+08
+  sweep 2 combo_thr  -> 500.0                        1.398e+08
+  sweep 2 hold_gc    -> False                        3.307e+08
+  sweep 2 pantheon   -> Godz-Moka-Muri               3.307e+08
+  sweep 2 loan2      -> False                        3.307e+08
+  start: RA+Flight | elder3 | none | forecast_double@7 | hold=0 | Godz-Moka-Muri | loan2=0
+  sweep 1 auras      -> ('RA', 'BoM')                3.642e+07
+  sweep 1 elder      -> 3                            3.642e+07
+  sweep 1 garden     -> whiskerbloom                 6.99e+07
+  sweep 1 grimoire   -> forecast_double              6.99e+07
+  sweep 1 combo_thr  -> 500.0                        9.704e+07
+  sweep 1 hold_gc    -> True                         9.845e+07
+  sweep 1 pantheon   -> Godz-Moka-Muri               9.845e+07
+  sweep 1 loan2      -> False                        9.845e+07
+  sweep 2 auras      -> ('RA', 'BoM')                9.845e+07
+  sweep 2 elder      -> 1                            1.398e+08
+  sweep 2 garden     -> whiskerbloom                 1.398e+08
+  sweep 2 grimoire   -> forecast_double              1.398e+08
+  sweep 2 combo_thr  -> 500.0                        1.398e+08
+  sweep 2 hold_gc    -> False                        3.307e+08
+  sweep 2 pantheon   -> Godz-Moka-Muri               3.307e+08
+  sweep 2 loan2      -> False                        3.307e+08
+== scenario: medium {'tower_price_s': 10, 'top_building_price_s': 1000, 'godz_batch_price_s': 1000}
+  start: RA+Orbs | elder3 | none | forecast_double@7 | hold=0 | none | loan2=0
+  sweep 1 auras      -> ('RA', 'BoM')                6.304e+04
+  sweep 1 elder      -> 3                            6.304e+04
+  sweep 1 garden     -> bakeberry                    1.883e+05
+  sweep 1 grimoire   -> forecast_double              1.883e+05
+  sweep 1 combo_thr  -> 500.0                        2.22e+05
+  sweep 1 hold_gc    -> True                         2.432e+05
+  sweep 1 pantheon   -> Godz-Moka-Muri               4.912e+07
+  sweep 1 loan2      -> False                        4.912e+07
+  sweep 2 auras      -> ('RA', 'BoM')                4.912e+07
+  sweep 2 elder      -> 1                            6.427e+07
+  sweep 2 garden     -> whiskerbloom                 1.398e+08
+  sweep 2 grimoire   -> forecast_double              1.398e+08
+  sweep 2 combo_thr  -> 500.0                        1.398e+08
+  sweep 2 hold_gc    -> False                        3.307e+08
+  sweep 2 pantheon   -> Godz-Moka-Muri               3.307e+08
+  sweep 2 loan2      -> False                        3.307e+08
+  start: RA+Flight | elder3 | none | forecast_double@7 | hold=0 | Godz-Moka-Muri | loan2=0
+  sweep 1 auras      -> ('RA', 'BoM')                3.642e+07
+  sweep 1 elder      -> 3                            3.642e+07
+  sweep 1 garden     -> whiskerbloom                 6.99e+07
+  sweep 1 grimoire   -> forecast_double              6.99e+07
+  sweep 1 combo_thr  -> 500.0                        9.704e+07
+  sweep 1 hold_gc    -> True                         9.845e+07
+  sweep 1 pantheon   -> Godz-Moka-Muri               9.845e+07
+  sweep 1 loan2      -> False                        9.845e+07

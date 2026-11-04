@@ -1,0 +1,1600 @@
+// =====================================================================
+// Cookie Clicker full auto script
+// Based on https://github.com/SteeleRobert/CookieClicker-Automation
+// Adjusted for: level 11 farm (full 6x6 garden) + Shimmering veil
+// Paste everything into the browser console (F12 -> Console).
+// =====================================================================
+
+
+// ---------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------
+
+// Shimmering veil
+// The veil (+50% CpS, more with Reinforced membrane & co.) breaks when you
+// click the big cookie or pop a golden cookie / reindeer, and turning it
+// back on costs 24 hours of unbuffed CpS.
+//
+// PROTECT_VEIL = true  -> idle play: while the veil is up the script does not
+//                         click the big cookie, does not pop shimmers and does
+//                         not cast Force the Hand of Fate. If the veil is
+//                         already broken it plays actively (pops, clicks,
+//                         combos) until buffs run out, then turns the veil
+//                         back on.
+// PROTECT_VEIL = false -> original active combo play, veil gets broken.
+var PROTECT_VEIL = true;
+// Turn the veil back on automatically once no buff is running and you
+// can afford it with VEIL_REBUY_BANK_MULT times its price in the bank
+// (2 = never spend more than half of your bank on it).
+var AUTO_REENABLE_VEIL = false;
+var VEIL_REBUY_BANK_MULT = 2;
+// While the veil is up, only start clicking the big cookie during a click
+// buff (Click frenzy, Dragonflight, ...) if the expected cookies from the
+// remaining buff time exceed this many times the veil re-enable price.
+var VEIL_BREAK_MARGIN = 3;
+// Clicking the big cookie breaks the veil, so with PROTECT_VEIL the script
+// would never click at all. With BREAK_VEIL_FOR_CLICKING on, it compares
+// what non-stop clicking earns (CLICKER_PER_SECOND * cookies per click)
+// with what the veil adds (veil boost * CpS). If clicking earns more than
+// VEIL_CLICK_MARGIN times the veil, the veil is given up and the script
+// plays actively (clicks, pops golden cookies, combos).
+var BREAK_VEIL_FOR_CLICKING = true;
+var VEIL_CLICK_MARGIN = 1;
+
+// Big cookie clicks per second (browsers throttle background tabs to ~1/s)
+const CLICKER_PER_SECOND = 10;
+
+// Auto buy
+// Buys every affordable upgrade (cheapest first) and then the building with
+// the best payback time. Toggles (Elder Pledge/Covenant, veil, season
+// switches, golden switch, ...), upgrades that cost sugar lumps, upgrades
+// the game asks you to confirm (e.g. One mind) and the Chocolate egg are
+// never bought.
+var AUTO_BUY_UPGRADES = true;
+var AUTO_BUY_BUILDINGS = true;
+// While golden cookies are being popped, keep this many seconds of
+// unbuffed CpS in the bank so Lucky! pays out in full (6000 s = max Lucky,
+// 42000 s = max Lucky during a Frenzy). Ignored while the veil is protected.
+var BANK_RESERVE_SECONDS = 6000;
+// Never auto-buy these
+var UPGRADE_BLACKLIST = ['Chocolate egg'];
+
+// Grimoire
+const MULTIPLIER_THRESHOLD_1 = 1000;
+const MULTIPLIER_THRESHOLD_2 = 1000;
+const CLICKER_THRESHOLD_1 = 300;
+const CLICKER_THRESHOLD_2 = 300;
+const SL_MULTIPLIER_THRESHOLD = 10000;
+const SL_CLICKER_THRESHOLD = 1000;
+
+// Garden
+// Level 9+ farms already have the full 6x6 plot, so a level 11 farm uses every
+// tile and all layouts below run unchanged.
+var MAXIMIZE_SUGAR_LUMPS = true;
+var PLANT_THRESHOLD = 5;
+var BAKEBERRY_THRESHOLD_1 = 7;
+var BAKEBERRY_THRESHOLD_2 = 50;
+
+// Krumblor (dragon)
+// Train the dragon automatically. Levels 5-24 sacrifice 100 of one building,
+// then 50 and 200 of every building. Training only happens outside of buffs
+// and, if DRAGON_REBUY_SACRIFICED is on, only once the bank holds
+// DRAGON_TRAIN_BANK_MULT times the cost of buying the sacrificed buildings
+// back (they are rebought right after).
+var AUTO_TRAIN_DRAGON = true;
+var DRAGON_REBUY_SACRIFICED = true;
+var DRAGON_TRAIN_BANK_MULT = 2;
+// Pick auras automatically. Every aura change sacrifices 1 of your best
+// building (the game's own price), which the script buys back. Auras are
+// only switched while no buff and no golden cookie is active. The first
+// entry goes into slot 1, the second into slot 2 (needs a fully trained
+// dragon). Unknown auras are skipped.
+//   IDLE_AURAS   -> used while the Shimmering veil is protected. Golden
+//                   cookies are left on screen there, so Dragon's Fortune
+//                   (+123% CpS per golden cookie on screen) works for free.
+//   ACTIVE_AURAS -> used when the script pops golden cookies and combos.
+var AUTO_DRAGON_AURAS = true;
+var IDLE_AURAS = ['Radiant Appetite', "Dragon's Fortune"];
+var ACTIVE_AURAS = ['Radiant Appetite', 'Dragonflight'];
+// Dragon Orbs: with no buffs and no golden cookie on screen, selling your
+// best building has a 10% chance to spawn a golden cookie. If enabled, the
+// active auras use Dragon Orbs instead of the 2nd ACTIVE_AURAS entry and
+// the script sells + rebuys your best building to fish for golden cookies.
+// One attempt loses ~62% of that building's price (~37% with Earth
+// Shatterer), ~10 attempts per golden cookie on average. Attempts only run
+// while one costs at most ORBS_MAX_COST_SECONDS of unbuffed CpS.
+// Run dragon_orbs_report() in the console to see what it costs you.
+var USE_DRAGON_ORBS = false;
+var ORBS_MAX_COST_SECONDS = 30;
+var ORBS_ATTEMPTS_PER_TICK = 10;
+
+
+// ---------------------------------------------------------------------
+// Shimmering veil helpers
+// ---------------------------------------------------------------------
+
+function veil_owned(){
+    return Game.Has('Shimmering veil');
+}
+
+// 'Shimmering veil [off]' being owned means the veil is currently ON
+function veil_up(){
+    return veil_owned() && Game.Has('Shimmering veil [off]');
+}
+
+// True while the script should avoid anything that breaks the veil
+function veil_protected(){
+    return PROTECT_VEIL && veil_up() && !clicking_beats_veil();
+}
+
+// The script plays idle (veil) style as long as it wants to keep the veil
+function playing_idle(){
+    return PROTECT_VEIL && veil_owned() && !clicking_beats_veil();
+}
+
+function veil_price(){
+    return Game.Upgrades['Shimmering veil [off]'].getPrice();
+}
+
+function any_buff_active(){
+    for (var i in Game.buffs) {
+        return true;
+    }
+    return false;
+}
+
+// Seconds left on the longest running click buff (0 if none)
+function click_buff_seconds(){
+    var seconds = 0;
+    for (var i in Game.buffs) {
+        var buff = Game.buffs[i];
+        if (typeof buff.multClick !== 'undefined' && buff.multClick > 1) {
+            seconds = Math.max(seconds, buff.time/Game.fps);
+        }
+    }
+    return seconds;
+}
+
+// Is clicking out the current click buff worth breaking the veil for?
+function click_worth_breaking_veil(){
+    var seconds = click_buff_seconds();
+    if (seconds <= 0) return false;
+    var expected = seconds*CLICKER_PER_SECOND*Game.computedMouseCps;
+    return expected > veil_price()*VEIL_BREAK_MARGIN;
+}
+
+// CpS multiplier bonus of the veil (0.5 = +50%)
+function veil_boost(){
+    return (typeof Game.getVeilBoost === 'function') ? Game.getVeilBoost() : 0.5;
+}
+
+// Does clicking non-stop earn more than keeping the veil up?
+// With base CpS C and veil boost b: veil up -> C*(1+b) CpS, no clicks.
+// Veil down -> C CpS + clicks worth click(C). Clicks scale with CpS just
+// like the veil does, so this boils down to clicks > b * current CpS
+// whether the veil is currently up or not.
+// Click buffs are divided out: a Click frenzy alone is judged by
+// click_worth_breaking_veil() instead.
+function clicking_beats_veil(){
+    if (!BREAK_VEIL_FOR_CLICKING) return false;
+    var click_mult = 1;
+    for (var i in Game.buffs) {
+        var buff = Game.buffs[i];
+        if (typeof buff.multClick !== 'undefined' && buff.multClick > 0) click_mult *= buff.multClick;
+    }
+    var clicking = CLICKER_PER_SECOND*Game.computedMouseCps/click_mult;
+    return clicking > veil_boost()*Game.cookiesPs*VEIL_CLICK_MARGIN;
+}
+
+var autoVeil = setInterval(function() {
+    if (!PROTECT_VEIL || !AUTO_REENABLE_VEIL || !veil_owned() || veil_up()) return;
+    // Clicking would just break it again
+    if (clicking_beats_veil()) return;
+    // Let any running combo finish first
+    if (any_buff_active() || Game.shimmers.length > 0) return;
+    var veil = Game.Upgrades['Shimmering veil [off]'];
+    if (veil.unlocked && !veil.bought && Game.cookies >= veil_price()*VEIL_REBUY_BANK_MULT) {
+        veil.buy();
+    }
+}, 5000);
+
+
+// ---------------------------------------------------------------------
+// Golden cookies / reindeer
+// ---------------------------------------------------------------------
+
+var autoGoldenCookie = setInterval(function() {
+    if (veil_protected()) return;
+    for (var i = Game.shimmers.length-1; i >= 0; i--) Game.shimmers[i].pop();
+}, 1000);
+
+
+// ---------------------------------------------------------------------
+// Elder covenant
+// ---------------------------------------------------------------------
+
+var change_elders = setInterval(function() {
+    if ('Frenzy' in Game.buffs && Game.elderWrath == 0){
+        Game.UpgradesById[85].click()
+    }
+    else if (Game.elderWrath > 0 && !('Frenzy' in Game.buffs)){
+        Game.UpgradesById[84].click()
+    }
+}, 1000);
+
+
+// ---------------------------------------------------------------------
+// Krumblor (dragon): training, auras, Dragon Orbs
+// ---------------------------------------------------------------------
+
+function highest_building(){
+    var best = null;
+    for (var i in Game.Objects) {
+        if (Game.Objects[i].amount > 0) best = Game.Objects[i];
+    }
+    return best;
+}
+
+// Building.buy() sells instead when the store is in sell mode
+function buy_building(building, amount){
+    if (amount <= 0) return;
+    var mode = Game.buyMode;
+    Game.buyMode = 1;
+    building.buy(amount);
+    Game.buyMode = mode;
+}
+
+function golden_on_screen(){
+    return Game.shimmerTypes['golden'].n > 0;
+}
+
+// [[building, amount], ...] the given dragon level sacrifices
+function dragon_level_sacrifice(level){
+    var last = Game.dragonLevels.length-1;
+    if (level >= 5 && level < last-2) return [[Game.ObjectsById[level-5], 100]];
+    var per = (level == last-2) ? 50 : (level == last-1) ? 200 : 0;
+    var list = [];
+    if (per > 0) {
+        for (var i in Game.Objects) list.push([Game.Objects[i], per]);
+    }
+    return list;
+}
+
+// Cookies needed to buy back the top `amount` of a building
+function rebuy_cost(building, amount){
+    return building.getReverseSumPrice(amount)/building.getSellMultiplier();
+}
+
+// Same as Game.UpgradeDragon() but without popping up the dragon menu
+function train_dragon(){
+    var level = Game.dragonLevel;
+    if (level >= Game.dragonLevels.length-1) return;
+    if (any_buff_active()) return;
+    var step = Game.dragonLevels[level];
+    if (!step.cost()) return;
+    var sacrifice = dragon_level_sacrifice(level);
+    if (DRAGON_REBUY_SACRIFICED && sacrifice.length > 0) {
+        var total = 0;
+        for (var i = 0; i < sacrifice.length; i++) total += rebuy_cost(sacrifice[i][0], sacrifice[i][1]);
+        if (Game.cookies < total*DRAGON_TRAIN_BANK_MULT) return;
+    }
+    step.buy();
+    Game.dragonLevel = level+1;
+    if (Game.dragonLevel >= Game.dragonLevels.length-1) Game.Win('Here be dragon');
+    Game.recalculateGains = 1;
+    Game.upgradesToRebuild = 1;
+    console.log('Dragon trained: ' + Game.dragonLevels[level].action.replace(/<[^>]*>/g, ' '));
+    if (DRAGON_REBUY_SACRIFICED) {
+        for (var i = 0; i < sacrifice.length; i++) buy_building(sacrifice[i][0], sacrifice[i][1]);
+    }
+}
+
+function aura_slots(){
+    return Game.dragonLevel >= Game.dragonLevels.length-1 ? 2 : 1;
+}
+
+function aura_known(id){
+    return id >= 0 && Game.dragonLevel >= id+4;
+}
+
+// Same as confirming the aura prompt: costs 1 of your best building
+function set_aura(slot, id){
+    var best = highest_building();
+    if (slot == 0) Game.dragonAura = id; else Game.dragonAura2 = id;
+    if (best) {
+        best.sacrifice(1);
+        buy_building(best, 1);
+    }
+    Game.recalculateGains = 1;
+    console.log('Dragon aura ' + (slot+1) + ' set to ' + Game.dragonAuras[id].name);
+}
+
+function wanted_auras(){
+    var names = veil_protected() ? IDLE_AURAS.slice() : ACTIVE_AURAS.slice();
+    if (!veil_protected() && USE_DRAGON_ORBS) names[1] = 'Dragon Orbs';
+    var ids = [];
+    for (var i = 0; i < names.length && ids.length < aura_slots(); i++) {
+        var aura = Game.dragonAurasBN[names[i]];
+        if (!aura) { console.warn('Unknown dragon aura: ' + names[i]); continue; }
+        if (aura_known(aura.id) && ids.indexOf(aura.id) == -1) ids.push(aura.id);
+    }
+    return ids;
+}
+
+function apply_dragon_auras(){
+    if (any_buff_active() || golden_on_screen()) return;
+    var wanted = wanted_auras();
+    var current = [Game.dragonAura, Game.dragonAura2];
+    for (var i = 0; i < wanted.length; i++) {
+        if (current.slice(0, aura_slots()).indexOf(wanted[i]) != -1) continue;
+        // Put it into a slot that holds an aura we don't want
+        for (var slot = 0; slot < aura_slots(); slot++) {
+            if (wanted.indexOf(current[slot]) == -1) {
+                set_aura(slot, wanted[i]);
+                current[slot] = wanted[i];
+                break;
+            }
+        }
+    }
+}
+
+var autoDragon = setInterval(function() {
+    if (AUTO_TRAIN_DRAGON) train_dragon();
+    if (AUTO_DRAGON_AURAS) apply_dragon_auras();
+}, 5000);
+
+// Cookies lost by selling 1 of the building and buying it back
+function orbs_attempt_cost(building){
+    var gain = Math.floor(building.getPrice()*building.getSellMultiplier());
+    var rebuy = Math.ceil(Game.modifyBuildingPrice(building,
+        building.basePrice*Math.pow(Game.priceIncrease, Math.max(0, building.amount-1-building.free))));
+    return {gain: gain, rebuy: rebuy, loss: rebuy-gain};
+}
+
+function dragon_orbs_report(){
+    var best = highest_building();
+    if (!best) return console.log('No buildings owned.');
+    var cost = orbs_attempt_cost(best);
+    var seconds = cost.loss/Game.unbuffedCps;
+    console.log('Dragon Orbs on ' + best.name + ' #' + best.amount + ': one attempt loses ' +
+        Beautify(cost.loss) + ' cookies = ' + Beautify(seconds) + ' s of unbuffed CpS, ~' +
+        Beautify(seconds*10) + ' s (' + Beautify(seconds/6) + ' min) per golden cookie. ' +
+        'Limit: ' + ORBS_MAX_COST_SECONDS + ' s per attempt -> ' +
+        (seconds <= ORBS_MAX_COST_SECONDS ? 'worth it.' : 'too expensive, script would skip it.'));
+}
+
+var autoDragonOrbs = setInterval(function() {
+    if (!USE_DRAGON_ORBS || veil_protected()) return;
+    if (Game.auraMult('Dragon Orbs') <= 0) return;
+    // Godzamok gives a Devastation buff on every sale, which blocks the wish
+    if (Game.hasGod && Game.hasGod('ruin')) return;
+    var best = highest_building();
+    if (!best) return;
+    for (var k = 0; k < ORBS_ATTEMPTS_PER_TICK; k++) {
+        if (golden_on_screen() || any_buff_active()) return;
+        var cost = orbs_attempt_cost(best);
+        if (cost.loss > Game.unbuffedCps*ORBS_MAX_COST_SECONDS) return;
+        if (Game.cookies+cost.gain < cost.rebuy) return;
+        best.sell(1);
+        buy_building(best, 1);
+    }
+}, 1000);
+
+
+// ---------------------------------------------------------------------
+// Grimoire
+// Force the Hand of Fate only pays off if the golden cookie gets popped,
+// so none of this runs while the veil is protected.
+// ---------------------------------------------------------------------
+
+function clicker_plus_multiplier(threshold){
+    if (Game.computedMouseCps > Game.unbuffedCps*threshold*777/4) {
+        return true;
+    }
+    return false;
+}
+
+var autoCastSpells = setInterval(function() {
+    if (veil_protected()) return;
+    var M=Game.ObjectsById[7].minigame;
+    var tower = Game.ObjectsById[7];
+    var towers_before = tower.amount;
+    if (Game.cookiesPs/Game.unbuffedCps > MULTIPLIER_THRESHOLD_1 || clicker_plus_multiplier(CLICKER_THRESHOLD_1)) {
+        if (M.magic == M.magicM) {
+            M.castSpell(M.spellsById[1]);
+        }
+        var age = Date.now()-Game.lumpT;
+        if(Game.lumpCurrentType == 4 && age>Game.lumpRipeAge){
+            while (M.magic <= M.magicM && tower.amount > 0) {
+                tower.sell(1);
+                // Update the amount of magic using same function as base game
+                var towers=Math.max(M.parent.amount,1);
+                var lvl=Math.max(M.parent.level,1);
+                M.magicM=Math.floor(4+Math.pow(towers,0.6)+Math.log((towers+(lvl-1)*10)/15+1)*15);
+            }
+            M.castSpell(M.spellsById[1]);
+            rebuy_towers(towers_before);
+            lump_cast();
+            Game.clickLump();
+            lump_cast();
+        }
+    }
+}, 1000);
+
+var sell_cast = setInterval(function() {
+    if (veil_protected()) return;
+    var M=Game.ObjectsById[7].minigame;
+    var tower = Game.ObjectsById[7];
+    var towers_before = tower.amount;
+    if ((Game.cookiesPs/Game.unbuffedCps > MULTIPLIER_THRESHOLD_2 || clicker_plus_multiplier(CLICKER_THRESHOLD_2)) && M.magic > 25 ) {
+
+        while (M.magic <= M.magicM && M.magic > 25 && tower.amount > 0) {
+            tower.sell(1);
+            // Update the amount of magic using same function as base game
+            var towers=Math.max(M.parent.amount,1);
+            var lvl=Math.max(M.parent.level,1);
+            M.magicM=Math.floor(4+Math.pow(towers,0.6)+Math.log((towers+(lvl-1)*10)/15+1)*15);
+        }
+        M.castSpell(M.spellsById[1]);
+        rebuy_towers(towers_before);
+
+    }
+}, 1000);
+
+// Buy Wizard towers back up to `target` after selling them for a cheap cast.
+// Stops when the bank runs dry instead of looping forever.
+function rebuy_towers(target){
+    var tower = Game.ObjectsById[7];
+    while (tower.amount < target && Game.cookies >= tower.getPrice()) {
+        var before = tower.amount;
+        buy_building(tower, 1);
+        if (tower.amount == before) break;
+    }
+}
+
+function lump_cast(){
+    var M=Game.ObjectsById[7].minigame;
+    var tower = Game.ObjectsById[7];
+    var towers_before = tower.amount;
+    Game.refillLump(1,function(){
+        M.magic+=100;
+        M.magic=Math.min(M.magic,M.magicM);
+        PlaySound('snd/pop'+Math.floor(Math.random()*3+1)+'.mp3',0.75);
+    });
+
+    while (M.magic <= M.magicM && M.magic > 25 && tower.amount > 0) {
+        tower.sell(1);
+        // Update the amount of magic using same function as base game
+        var towers=Math.max(M.parent.amount,1);
+        var lvl=Math.max(M.parent.level,1);
+        M.magicM=Math.floor(4+Math.pow(towers,0.6)+Math.log((towers+(lvl-1)*10)/15+1)*15);
+    }
+    M.castSpell(M.spellsById[1]);
+
+    while (M.magic <= M.magicM && M.magic > 25 && tower.amount > 0) {
+        tower.sell(1);
+        // Update the amount of magic using same function as base game
+        var towers=Math.max(M.parent.amount,1);
+        var lvl=Math.max(M.parent.level,1);
+        M.magicM=Math.floor(4+Math.pow(towers,0.6)+Math.log((towers+(lvl-1)*10)/15+1)*15);
+    }
+    M.castSpell(M.spellsById[1]);
+    rebuy_towers(towers_before);
+}
+
+var activate_lump_cast = setInterval(function() {
+    if (veil_protected()) return;
+    var M=Game.ObjectsById[7].minigame;
+    var tower = Game.ObjectsById[7];
+    if(Game.lumps > 100 && Game.canRefillLump()){
+        if ((Game.cookiesPs/Game.unbuffedCps > SL_MULTIPLIER_THRESHOLD || clicker_plus_multiplier(SL_CLICKER_THRESHOLD)) ) {
+            lump_cast();
+        }
+    }
+}, 1000);
+
+
+// ---------------------------------------------------------------------
+// Big cookie autoclicker
+// ---------------------------------------------------------------------
+
+var clickOnBuff = setInterval(function() {
+    if (veil_protected() && !click_worth_breaking_veil()) return;
+    Game.ClickCookie();
+},
+1000/CLICKER_PER_SECOND
+);
+
+
+// ---------------------------------------------------------------------
+// Auto buy: upgrades and buildings
+// ---------------------------------------------------------------------
+
+// True while a CpS or click buff runs (the Grimoire combos sell and rebuy
+// Wizard towers then, so don't spend their cookies). Long harmless buffs
+// such as Sugar blessing don't count.
+function combo_running(){
+    for (var i in Game.buffs) {
+        var buff = Game.buffs[i];
+        if ((buff.multCpS && buff.multCpS > 1) || (buff.multClick && buff.multClick > 1)) return true;
+    }
+    return false;
+}
+
+function bank_reserve(){
+    var reserve = 0;
+    if (!veil_protected()) reserve = Game.unbuffedCps*BANK_RESERVE_SECONDS;
+    // Keep the veil re-enable money if the script is going to turn it back on
+    if (PROTECT_VEIL && AUTO_REENABLE_VEIL && veil_owned() && !veil_up() && !clicking_beats_veil()) {
+        reserve = Math.max(reserve, veil_price()*VEIL_REBUY_BANK_MULT);
+    }
+    return reserve;
+}
+
+function upgrade_skipped(u){
+    if (u.bought || u.pool == 'toggle' || u.pool == 'debug' || u.pool == 'prestige') return true;
+    if (u.priceLumps) return true;
+    // Upgrades that ask for confirmation (One mind, ...) are left to you
+    if (u.clickFunction || u.choicesFunction) return true;
+    if (UPGRADE_BLACKLIST.indexOf(u.name) != -1) return true;
+    if (u.name.indexOf('Shimmering veil') == 0) return true;
+    for (var s in Game.seasons) {
+        if (Game.seasons[s].trigger == u.name) return true;
+    }
+    return false;
+}
+
+// Cheapest affordable upgrade, or null
+function next_upgrade(budget){
+    var best = null;
+    for (var i = 0; i < Game.UpgradesInStore.length; i++) {
+        var u = Game.UpgradesInStore[i];
+        if (upgrade_skipped(u)) continue;
+        if (u.canBuy && !u.canBuy()) continue;
+        var price = u.getPrice();
+        if (price > budget) continue;
+        if (!best || price < best.getPrice()) best = u;
+    }
+    return best;
+}
+
+// Building with the best payback period (Cookie Monster style: time to
+// afford + time to earn back its price). Synergies are ignored.
+function next_building(budget){
+    var best = null, best_pp = Infinity;
+    var cps = Math.max(Game.cookiesPs, 1);
+    for (var i in Game.Objects) {
+        var b = Game.Objects[i];
+        if (b.locked) continue;
+        var gain = b.storedCps*Game.globalCpsMult;
+        if (!(gain > 0)) continue;
+        var price = b.getPrice();
+        var pp = Math.max(price-budget, 0)/cps + price/gain;
+        if (pp < best_pp) { best_pp = pp; best = b; }
+    }
+    // Only buy the best one; if it's not affordable yet, save up for it
+    if (best && best.getPrice() <= budget) return best;
+    return null;
+}
+
+var autoBuy = setInterval(function() {
+    if (combo_running()) return;
+    for (var k = 0; k < 100; k++) {
+        var budget = Game.cookies-bank_reserve();
+        if (budget <= 0) return;
+        if (AUTO_BUY_UPGRADES) {
+            var u = next_upgrade(budget);
+            if (u) {
+                u.buy(true);
+                if (!u.bought) return;
+                Game.CalculateGains();
+                continue;
+            }
+        }
+        if (AUTO_BUY_BUILDINGS) {
+            var b = next_building(budget);
+            if (b) {
+                var before = b.amount;
+                buy_building(b, 1);
+                if (b.amount == before) return;
+                Game.CalculateGains();
+                continue;
+            }
+        }
+        return;
+    }
+}, 2000);
+
+
+// ---------------------------------------------------------------------
+// Sugar lumps (harvesting never touches the veil)
+// ---------------------------------------------------------------------
+
+var autoClickSugarLump = setInterval(function() {
+    var age = Date.now()-Game.lumpT;
+    if (age>Game.lumpRipeAge && Game.lumpCurrentType != 4) {
+        Game.clickLump();
+    }
+}, 1000);
+
+// Golden sugar lumps are saved for the Grimoire combo and picked right
+// before they would fall off if no combo used them.
+var autoClickGoldenSugarLump = setInterval(function() {
+    var age = Date.now()-Game.lumpT;
+    if (age>Game.lumpOverripeAge-30000 && Game.lumpCurrentType == 4) {
+        Game.clickLump();
+    }
+}, 1000);
+
+
+// ---------------------------------------------------------------------
+// Stock market (prices tuned for a level 10 bank, run simulate.py for others)
+// ---------------------------------------------------------------------
+
+var autoStockMarket = setInterval(function() {
+    var S = Game.ObjectsById[5].minigame;
+    stock_points = {
+        0: [4.296752808225449, 74.29675280822545],
+        1: [7.101098120866283, 69.60109812086628],
+        2: [6.056790259536228, 76.05679025953623],
+        3: [6.967195132086488, 91.96719513208649],
+        4: [7.693608673653188, 97.69360867365319],
+        5: [4.866925452745392, 84.86692545274539],
+        6: [8.150600348757706, 93.1506003487577],
+        7: [6.253081399632322, 116.25308139963232],
+        8: [7.384369208292071, 119.88436920829207],
+        9: [40.153257584487505, 127.6532575844875],
+        10: [4.593442003495852, 134.59344200349585],
+        11: [27.99021441180213, 142.99021441180213],
+        12: [48.14629756608133, 138.14629756608133],
+        13: [33.07745904023403, 138.07745904023403],
+        14: [74.15591670938426, 144.15591670938426],
+        15: [69.83242089997663, 142.33242089997663],
+        16: [54.58890361704482, 167.08890361704482]
+    }
+    for (let i = 0; i < 17; i++) {
+        if (stock_points[i][0] > S.goodsById[i].val && S.getGoodMaxStock(S.goodsById[i])-S.goodsById[i].stock > 0){
+            S.buyGood(i,S.getGoodMaxStock(S.goodsById[i])-S.goodsById[i].stock);
+        } else if (stock_points[i][1] < S.goodsById[i].val && S.goodsById[i].stock > 0){
+            S.sellGood(i,S.goodsById[i].stock);
+        }
+      }
+}, 60000);
+
+
+// ---------------------------------------------------------------------
+// Garden end-game strategies
+// ---------------------------------------------------------------------
+
+if (Game.ObjectsById[2].level < 9) {
+    console.warn('Farm is below level 9: the garden plot is not 6x6 yet, some layouts will be incomplete.');
+}
+
+function farm_bakeberries() {
+    var farm = Game.ObjectsById[2].minigame;
+    if(farm.plantsById[8].unlocked == 1){
+        for (let i = 0; i < 6; i++) {
+            for (let j = 0; j < 6; j++) {
+                var tile = farm.plot[j][i]
+                if (tile[0] == 0){
+                    if (Game.cookiesPs/Game.unbuffedCps < PLANT_THRESHOLD) {
+                        farm.seedSelected = 8
+                        farm.clickTile(i,j);
+                    }
+                }
+                else if (tile[1] > 90){
+                    if (Game.cookiesPs/Game.unbuffedCps > BAKEBERRY_THRESHOLD_1) {
+                        farm.clickTile(i,j);
+                    }
+                }
+                else if (tile[1] >= farm.plantsById[tile[0]-1].mature){
+                    if (Game.cookiesPs/Game.unbuffedCps > BAKEBERRY_THRESHOLD_2) {
+                        farm.clickTile(i,j);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Golden clovers only help if golden cookies get popped (combo play)
+function farm_goldenclover() {
+    var farm = Game.ObjectsById[2].minigame;
+    change_soil(farm,2);
+    if(farm.plantsById[5].unlocked == 1){
+        for (let i = 0; i < 6; i++) {
+            for (let j = 0; j < 6; j++) {
+                var tile = farm.plot[j][i]
+                if (tile[0] == 0){
+                    if (Game.cookiesPs/Game.unbuffedCps < PLANT_THRESHOLD) {
+                        farm.seedSelected = 5
+                        farm.clickTile(i,j);
+                    }
+                }
+                else if (tile[0] != 6){
+                    farm.clickTile(i,j);
+                }
+            }
+        }
+    }
+}
+
+// Veil (idle) play: fill all 36 tiles with Baker's wheat on clay.
+// Each one gives +1% CpS (x1.25 on clay -> about +45% CpS total) for only
+// one minute of CpS per seed. Dead wheat is simply replanted and any
+// weeds / mutations that sprout get pulled.
+function farm_veil_idle() {
+    var farm = Game.ObjectsById[2].minigame;
+    var wheat = plant_mapping['bakerWheat'];
+    change_soil(farm,2);
+    for (let i = 0; i < 6; i++) {
+        for (let j = 0; j < 6; j++) {
+            if (!farm.isTileUnlocked(i,j)) continue;
+            var tile = farm.plot[j][i]
+            if (tile[0] == 0){
+                plant_tiles(farm, wheat, [i], [j]);
+            }
+            else if (tile[0]-1 != wheat && farm.plantsById[tile[0]-1].unlocked == 1){
+                farm.clickTile(i,j);
+            }
+        }
+    }
+}
+
+function farm_endgame() {
+    if (playing_idle()) {
+        farm_veil_idle();
+    }
+    else {
+        farm_goldenclover();
+    }
+}
+
+
+
+
+// Helper functions
+
+function all_seeds_unlocked(){
+    var farm = Game.ObjectsById[2].minigame;
+    // iterate through all seeds in dictionary farm.plants
+    for (var i in farm.plants) {
+        if (farm.plants[i].unlocked == 0){
+            return false;
+        }
+    }
+    return true;
+}
+
+function check_tiles(farm, plantId, x_axis, y_axis){
+    for (let i = 0; i < x_axis.length; i++) {
+        for (let j = 0; j < y_axis.length; j++) {
+            var tile = farm.plot[y_axis[j]][x_axis[i]]
+            if (tile[0] == 0 || tile[0]-1 != plantId && farm.plantsById[tile[0]-1].unlocked == 1){
+                return false;
+            }
+        }
+    }
+    return true;
+};
+
+function plant_tiles(farm, plantId, x_axis, y_axis){
+    for (let i = 0; i < x_axis.length; i++) {
+        for (let j = 0; j < y_axis.length; j++) {
+            if (Game.cookiesPs/Game.unbuffedCps < PLANT_THRESHOLD) {
+                farm.seedSelected = plantId;
+                // If plant at time is unlocked or tile is empty plant it
+                var tile = farm.plot[y_axis[j]][x_axis[i]]
+                if (tile[0] == 0 || farm.plantsById[tile[0]-1].unlocked == 1){
+                    farm.clickTile(x_axis[i],y_axis[j]);
+                }
+            }
+        }
+    }
+    return true;
+};
+
+function clean_all_plants(farm){
+    var x_axis = [0,1,2,3,4,5];
+    var y_axis = [0,1,2,3,4,5];
+    clean_tiles(farm, x_axis, y_axis);
+}
+
+function clean_tiles(farm, x_axis, y_axis){
+    for (let i = 0; i < x_axis.length; i++) {
+        for (let j = 0; j < y_axis.length; j++) {
+            var tile = farm.plot[y_axis[j]][x_axis[i]]
+            if (tile[0] != 0 && farm.plantsById[tile[0]-1].unlocked == 1) {
+                farm.clickTile(x_axis[i],y_axis[j]);
+            }
+        }
+    }
+};
+
+function all_unlocked(farm){
+    for (let i = 0; i < 6; i++) {
+        for (let j = 0; j < 6; j++) {
+            var tile = farm.plot[j][i]
+            if (tile[0] != 0 && farm.plantsById[tile[0]-1].unlocked == 0){
+                return false;
+            }
+        }
+    }
+    return true;
+};
+
+function harvest_unlocked(farm){
+    var x_axis = [0,1,2,3,4,5];
+    var y_axis = [0,1,2,3,4,5];
+    for (let i = 0; i < x_axis.length; i++) {
+        for (let j = 0; j < y_axis.length; j++) {
+            var tile = farm.plot[y_axis[j]][x_axis[i]]
+            if (tile[0] != 0 && farm.plantsById[tile[0]-1].unlocked == 0 && farm.plantsById[tile[0]-1].mature <= tile[1]){
+                farm.clickTile(x_axis[i],y_axis[j]);
+            }
+        }
+    }
+};
+
+function change_soil(farm, soilId){
+    if (!(farm.freeze || farm.soil==soilId || farm.nextSoil>Date.now())){
+        farm.nextSoil=Date.now()+(Game.Has('Turbo-charged soil')?1:(1000*60*10));
+        farm.toCompute=true;farm.soil=soilId;farm.computeStepT();
+        for (var i in farm.soils){var it=farm.soils[i];if (it.id==farm.soil){l('gardenSoil-'+it.id).classList.add('on');}else{l('gardenSoil-'+it.id).classList.remove('on');}}
+    }
+};
+
+function any_mature(farm){
+    var x_axis = [0,1,2,3,4,5];
+    var y_axis = [0,1,2,3,4,5];
+    for (let i = 0; i < x_axis.length; i++) {
+        for (let j = 0; j < y_axis.length; j++) {
+            var tile = farm.plot[y_axis[j]][x_axis[i]]
+            if (tile[0] != 0 && farm.plantsById[tile[0]-1].mature <= tile[1]){
+                return true;
+            }
+        }
+    }
+    return false;
+};
+
+function get_mature_time(parent, age) {
+    var farm = Game.ObjectsById[2].minigame;
+    var rate = farm.plantsById[parent].ageTick;
+    var ticks2mature = farm.plantsById[parent].mature - age;
+    return ticks2mature/rate;
+};
+
+function get_long_short(parent1, parent2) {
+    parent1 = plant_mapping[parent1]
+    parent2 = plant_mapping[parent2]
+    if (get_mature_time(parent1, 0) > get_mature_time(parent2, 0)){
+        return [parent1, parent2]
+    }
+    else{
+        return [parent2, parent1]
+    }
+};
+
+// Self mutition functions
+
+function check_self_mutition(farm, plantId){
+    const x_axis = [1,4];
+    const y_axis = [0,1,2,4,5];
+    return check_tiles(farm, plantId, x_axis, y_axis);
+};
+
+function plant_self_mutition(farm, plantId){
+    const x_axis = [1,4];
+    const y_axis = [0,1,2,4,5];
+    plant_tiles(farm, plantId, x_axis, y_axis)
+};
+
+function clean_self_mutition(farm){
+    var x_axis = [0,2,3,5];
+    var y_axis = [0,1,2,3,4,5];
+    clean_tiles(farm, x_axis, y_axis);
+    x_axis = [0,1,2,3,4,5];
+    y_axis = [3];
+    clean_tiles(farm, x_axis, y_axis);
+};
+
+
+// Cross mutition functions
+
+function check_longer_plant(farm, plantId){
+    const x_axis = [1,4];
+    const y_axis = [1,4];
+    return check_tiles(farm, plantId, x_axis, y_axis);
+};
+
+function check_shorter_plant(farm, plantId){
+    var x_axis = [1];
+    var y_axis = [0,2,5];
+    if(!check_tiles(farm, plantId, x_axis, y_axis)){
+        return false;
+    }
+    x_axis = [4];
+    y_axis = [0,3,5];
+    return check_tiles(farm, plantId, x_axis, y_axis);
+};
+
+
+function plant_longer_mutition(farm, plantId){
+    const x_axis = [1,4];
+    const y_axis = [1,4];
+    plant_tiles(farm, plantId, x_axis, y_axis)
+    return true;
+};
+
+function plant_shorter_mutition(farm, plantId){
+    var x_axis = [1,4];
+    var y_axis = [1,4];
+    var time_to_mature = 1000;
+    for (let i = 0; i < x_axis.length; i++) {
+        for (let j = 0; j < y_axis.length; j++) {
+            var tile = farm.plot[y_axis[j]][x_axis[i]]
+            if (tile[0] != 0) {
+                time_to_mature = Math.min(get_mature_time(tile[0]-1, tile[1]),time_to_mature);
+            }
+        }
+    }
+    if (time_to_mature < get_mature_time(plantId, 0)) {
+        x_axis = [1];
+        y_axis = [0,2,5];
+        plant_tiles(farm, plantId, x_axis, y_axis)
+        x_axis = [4];
+        y_axis = [0,3,5];
+        plant_tiles(farm, plantId, x_axis, y_axis)
+    }
+};
+
+function clean_short_mutations(farm){
+    var x_axis = [1];
+    var y_axis = [0,2,5];
+    clean_tiles(farm, x_axis, y_axis);
+    x_axis = [4];
+    y_axis = [0,3,5];
+    clean_tiles(farm, x_axis, y_axis);
+};
+
+function clean_two_mutition(farm){
+    var x_axis = [0,2,3,5];
+    var y_axis = [0,1,2,3,4,5];
+    clean_tiles(farm, x_axis, y_axis);
+    x_axis = [0,1,2];
+    y_axis = [3];
+    clean_tiles(farm, x_axis, y_axis);
+    x_axis = [3,4,5];
+    y_axis = [2];
+    clean_tiles(farm, x_axis, y_axis);
+};
+
+// Three mutition functions
+
+function check_three_mutition(farm, plantId){
+    const x_axis = [0,2,4];
+    const y_axis = [0,1,2,3,4,5];
+    return check_tiles(farm, plantId, x_axis, y_axis);
+};
+
+function plant_three_mutition(farm, plantId){
+    const x_axis = [0,2,4];
+    const y_axis = [0,1,2,3,4,5];
+    plant_tiles(farm, plantId, x_axis, y_axis)
+};
+
+function clean_three_mutition(farm){
+    var x_axis = [1,3,5];
+    var y_axis = [0,1,2,3,4,5];
+    clean_tiles(farm, x_axis, y_axis);
+};
+
+// Eight mutition functions
+
+function check_eight_mutition(farm, plantId){
+    var x_axis = [0,2,4];
+    var y_axis = [1,2,3,4,5];
+    if(!check_tiles(farm, plantId, x_axis, y_axis)){
+        return false;
+    }
+    x_axis = [1,3];
+    y_axis = [1,3,5];
+    return check_tiles(farm, plantId, x_axis, y_axis);
+};
+
+function plant_eight_mutition(farm, plantId){
+    var x_axis = [0,2,4];
+    var y_axis = [1,2,3,4,5];
+    plant_tiles(farm, plantId, x_axis, y_axis)
+    x_axis = [1,3];
+    y_axis = [1,3,5];
+    plant_tiles(farm, plantId, x_axis, y_axis)
+};
+
+function clean_eight_mutition(farm){
+    var x_axis = [1,3,5];
+    var y_axis = [0];
+    clean_tiles(farm, x_axis, y_axis);
+    var x_axis = [5];
+    var y_axis = [0,2,4];
+    clean_tiles(farm, x_axis, y_axis);
+    var x_axis = [1,3];
+    var y_axis = [2,4];
+    clean_tiles(farm, x_axis, y_axis);
+};
+
+// 3x3 mutition functions
+
+function check_longer_plant_3x3(farm, plantId){
+    const x_axis = [2];
+    const y_axis = [0,1,2,3,4,5];
+    return check_tiles(farm, plantId, x_axis, y_axis);
+};
+
+function check_shorter_plant_3x3(farm, plantId){
+    const x_axis = [0,4];
+    const y_axis = [0,1,2,3,4,5];
+    return check_tiles(farm, plantId, x_axis, y_axis);
+};
+
+
+function plant_longer_mutition_3x3(farm, plantId){
+    const x_axis = [2];
+    const y_axis = [0,1,2,3,4,5];
+    plant_tiles(farm, plantId, x_axis, y_axis)
+};
+
+function plant_shorter_mutition_3x3(farm, plantId){
+    const x_axis = [2];
+    const y_axis = [0,1,2,3,4,5];
+    var time_to_mature = 1000;
+    for (let i = 0; i < x_axis.length; i++) {
+        for (let j = 0; j < y_axis.length; j++) {
+            var tile = farm.plot[y_axis[j]][x_axis[i]]
+            if (tile[0] != 0) {
+                time_to_mature = Math.min(get_mature_time(tile[0]-1, tile[1]),time_to_mature);
+            }
+        }
+    }
+    if (time_to_mature < get_mature_time(plantId, 0)) {
+        const x_axis = [0,4];
+        const y_axis = [0,1,2,3,4,5];
+        plant_tiles(farm, plantId, x_axis, y_axis)
+    }
+};
+
+function clean_short_mutations_3x3(farm){
+    const x_axis = [0,4];
+    const y_axis = [0,1,2,3,4,5];
+    clean_tiles(farm, x_axis, y_axis);
+}
+
+function clean_two_mutition_3x3(farm){
+    var x_axis = [1,3,5];
+    var y_axis = [0,1,2,3,4,5];
+    clean_tiles(farm, x_axis, y_axis);
+}
+
+
+function check_side_longer(farm, plantId){
+    var x_axis = [0,4];
+    var y_axis = [0];
+    if(!check_tiles(farm, plantId, x_axis, y_axis)){
+        return false;
+    }
+    x_axis = [5];
+    y_axis = [3];
+    return check_tiles(farm, plantId, x_axis, y_axis);
+}
+
+function check_side_shorter(farm, plantId){
+    var x_axis = [2];
+    var y_axis = [0];
+    if(!check_tiles(farm, plantId, x_axis, y_axis)){
+        return false;
+    }
+    x_axis = [5];
+    y_axis = [1,5];
+    return check_tiles(farm, plantId, x_axis, y_axis);
+}
+
+function plant_side_longer(farm, plantId){
+    var x_axis = [0,4];
+    var y_axis = [0];
+    plant_tiles(farm, plantId, x_axis, y_axis)
+    x_axis = [5];
+    y_axis = [3];
+    plant_tiles(farm, plantId, x_axis, y_axis)
+}
+
+function plant_side_shorter(farm, plantId){
+    var x_axis = [0,4];
+    var y_axis = [0];
+    var time_to_mature = 1000;
+    for (let i = 0; i < x_axis.length; i++) {
+        for (let j = 0; j < y_axis.length; j++) {
+            var tile = farm.plot[y_axis[j]][x_axis[i]]
+            if (tile[0] != 0) {
+                time_to_mature = Math.min(get_mature_time(tile[0]-1, tile[1]),time_to_mature);
+            }
+        }
+    }
+    x_axis = [5];
+    y_axis = [3];
+    for (let i = 0; i < x_axis.length; i++) {
+        for (let j = 0; j < y_axis.length; j++) {
+            var tile = farm.plot[y_axis[j]][x_axis[i]]
+            if (tile[0] != 0) {
+                time_to_mature = Math.min(get_mature_time(tile[0]-1, tile[1]),time_to_mature);
+            }
+        }
+    }
+    if (time_to_mature < get_mature_time(plantId, 0)) {
+        var x_axis = [2];
+        var y_axis = [0];
+        plant_tiles(farm, plantId, x_axis, y_axis)
+        x_axis = [5];
+        y_axis = [1,5];
+        plant_tiles(farm, plantId, x_axis, y_axis)
+    }
+}
+
+function clean_side_shorter(farm){
+    var x_axis = [2];
+    var y_axis = [0];
+    clean_tiles(farm, x_axis, y_axis);
+    x_axis = [5];
+    y_axis = [1,5];
+    clean_tiles(farm, x_axis, y_axis);
+}
+
+function clean_all_edges(farm){
+    var x_axis = [0,1,2,3,4,5];
+    var y_axis = [0];
+    clean_tiles(farm, x_axis, y_axis);
+    x_axis = [5];
+    y_axis = [0,1,2,3,4,5];
+    clean_tiles(farm, x_axis, y_axis);
+}
+
+
+function side_breed(parent1, parent2) {
+    var farm = Game.ObjectsById[2].minigame;
+    new_ordering = get_long_short(parent1, parent2)
+    longer = new_ordering[0]
+    shorter = new_ordering[1]
+    if (!check_side_longer(farm, longer)){ 
+        clean_all_edges(farm);
+        plant_side_longer(farm, longer);
+    }
+    if(!check_side_shorter(farm, shorter)){
+        clean_side_shorter(farm);
+        plant_side_shorter(farm, shorter)
+    }
+};
+
+
+
+var plant_mapping = {
+    'bakerWheat':0,
+    'thumbcorn':1,
+    'cronerice':2,
+    'gildmillet':3,
+    'clover':4,
+    'goldenClover':5,
+    'shimmerlily':6,
+    'elderwort':7,
+    'bakeberry':8,
+    'chocoroot':9,
+    'whiteChocoroot':10,
+    'whiteMildew':11,
+    'brownMold':12,
+    'meddleweed':13,
+    'whiskerbloom':14,
+    'chimerose':15,
+    'nursetulip':16,
+    'drowsyfern':17,
+    'wardlichen':18,
+    'keenmoss':19,
+    'queenbeet':20,
+    'queenbeetLump':21,
+    'duketater':22,
+    'crumbspore':23,
+    'doughshroom':24,
+    'glovemorel':25,
+    'cheapcap':26,
+    'foolBolete':27,
+    'wrinklegill':28,
+    'greenRot':29,
+    'shriekbulb':30,
+    'tidygrass':31,
+    'everdaisy':32,
+    'ichorpuff':33
+}
+
+var plant_breeding ={
+    'meddleweed': {
+        'method': 'Spawn'
+    },
+    'crumbspore': {
+        'method': 'meddleweed'
+    },
+    'brownMold': {
+        'method': 'meddleweed'
+    },
+    'whiteMildew': {
+        'method': 'Self',
+        'parent': 'brownMold'
+    },
+    'bakeberry': {
+        'method': 'Self',
+        'parent': 'bakerWheat'
+    },
+    'chocoroot': {
+        'method': 'Cross',
+        'parent1': 'bakerWheat',
+        'parent2': 'brownMold'
+    },
+    'queenbeet': {
+        'method': 'Cross',
+        'parent1': 'chocoroot',
+        'parent2': 'bakeberry'
+    },
+    'queenbeetLump': {
+        'method': 'Eight',
+        'parent': 'queenbeet',
+    },
+    'elderwort': {
+        'method': 'Cross',
+        'parent1': 'cronerice',
+        'parent2': 'shimmerlily'
+    },
+    'whiteChocoroot': {
+        'method': 'Cross',
+        'parent1': 'chocoroot',
+        'parent2': 'whiteMildew'
+    },
+    'tidygrass': {
+        'method': 'Cross',
+        'parent1': 'whiteChocoroot',
+        'parent2': 'bakerWheat'
+    },
+    'everdaisy': {
+        'method': '3x3',
+        'parent1': 'tidygrass',
+        'parent2': 'elderwort'
+    },
+    'ichorpuff': {
+        'method': 'Cross',
+        'parent1': 'elderwort',
+        'parent2': 'crumbspore'
+    },
+    'thumbcorn': {
+        'method': 'Self',
+        'parent': 'bakerWheat'
+    },
+    'cronerice': {
+        'method': 'Cross',
+        'parent1': 'bakerWheat',
+        'parent2': 'thumbcorn'
+    },
+    'gildmillet': {
+        'method': 'Cross',
+        'parent1': 'cronerice',
+        'parent2': 'thumbcorn'
+    },
+    'clover': {
+        'method': 'Cross',
+        'parent1': 'bakerWheat',
+        'parent2': 'gildmillet'
+    },
+    'goldenClover': {
+        'method': 'Cross',
+        'parent1': 'bakerWheat',
+        'parent2': 'gildmillet'
+    },
+    'shimmerlily': {
+        'method': 'Cross',
+        'parent1': 'clover',
+        'parent2': 'gildmillet'
+    },
+    'doughshroom': {
+        'method': 'Self',
+        'parent': 'crumbspore'
+    },
+    'greenRot': {
+        'method': 'Cross',
+        'parent1': 'whiteMildew',
+        'parent2': 'clover'
+    },
+    'keenmoss': {
+        'method': 'Cross',
+        'parent1': 'brownMold',
+        'parent2': 'greenRot'
+    },
+    'drowsyfern': {
+        'method': 'Cross',
+        'parent1': 'keenmoss',
+        'parent2': 'chocoroot'
+    },
+    'duketater': {
+        'method': 'Self',
+        'parent': 'queenbeet'
+    },
+    'wardlichen': {
+        'method': 'Cross',
+        'parent1': 'keenmoss',
+        'parent2': 'cronerice'
+    },
+    'glovemorel': {
+        'method': 'Cross',
+        'parent1': 'crumbspore',
+        'parent2': 'thumbcorn'
+    },
+    'cheapcap': {
+        'method': 'Cross',
+        'parent1': 'crumbspore',
+        'parent2': 'shimmerlily'
+    },
+    'wrinklegill': {
+        'method': 'Cross',
+        'parent1': 'crumbspore',
+        'parent2': 'brownMold'
+    },
+    'foolBolete': {
+        'method': 'Cross',
+        'parent1': 'doughshroom',
+        'parent2': 'greenRot'
+    },
+    'whiskerbloom': {
+        'method': 'Cross',
+        'parent1': 'shimmerlily',
+        'parent2': 'whiteChocoroot'
+    },
+    'nursetulip': {
+        'method': 'Self',
+        'parent': 'whiskerbloom'
+    },
+    'chimerose': {
+        'method': 'Cross',
+        'parent1': 'whiskerbloom',
+        'parent2': 'shimmerlily'
+    },
+    'shriekbulb': {
+        'method': 'Three',
+        'parent': 'duketater',
+    },
+}
+
+function spawn() {
+    var farm = Game.ObjectsById[2].minigame;
+    change_soil(farm,1);
+    for (let i = 0; i < 6; i++) {
+        for (let j = 0; j < 6; j++) {
+            var tile = farm.plot[j][i]
+            if (tile[0] != 0 && tile[1] >= farm.plantsById[tile[0]-1].mature && (farm.plantsById[tile[0]-1].unlocked == 0 || tile[0]-1 == plant_mapping['meddleweed'])){
+                farm.clickTile(i,j);
+            }
+            if (tile[0] != 0 && tile[0]-1 != plant_mapping['meddleweed'] && farm.plantsById[tile[0]-1].unlocked != 0){
+                farm.clickTile(i,j);
+            }
+        }
+    }
+}
+
+function clean_meddle(){
+    var farm = Game.ObjectsById[2].minigame;
+    change_soil(farm,1);
+    for (let i = 0; i < 6; i++) {
+        for (let j = 0; j < 6; j++) {
+            var tile = farm.plot[j][i]
+            if (tile[0] != 0 && (tile[1] >= farm.plantsById[tile[0]-1].mature || (tile[0]-1 != plant_mapping['meddleweed'] && farm.plantsById[tile[0]-1].unlocked == 1))){
+                farm.clickTile(i,j);
+            }
+        }
+    }
+
+}
+
+function plant_meddle(){
+    var farm = Game.ObjectsById[2].minigame;
+    change_soil(farm,1);
+    for (let i = 0; i < 6; i++) {
+        for (let j = 0; j < 6; j++) {
+            var tile = farm.plot[j][i];
+            if (tile[0] == 0){
+                plant_tiles(farm, plant_mapping['meddleweed'], [i], [j])
+            }
+        }
+    }
+
+}
+
+function meddleweed() {
+    clean_meddle();
+    plant_meddle();
+}
+
+function maximize_soil(farm) {
+    if(any_mature(farm)){// && all_unlocked(farm)){
+        change_soil(farm,4);
+    }
+    else{
+        change_soil(farm,1);
+    }
+}
+
+function breed_self(parent) {
+    var farm = Game.ObjectsById[2].minigame;
+    maximize_soil(farm)
+    parent = plant_mapping[parent];
+    if (!check_self_mutition(farm, parent)){ 
+        clean_all_plants(farm);
+        plant_self_mutition(farm, parent);
+    }
+    clean_self_mutition(farm)
+}
+
+function breed_cross(parent1, parent2) {
+    var farm = Game.ObjectsById[2].minigame;
+    maximize_soil(farm)
+    new_ordering = get_long_short(parent1, parent2)
+    longer = new_ordering[0]
+    shorter = new_ordering[1]
+    if (!check_longer_plant(farm, longer)){ 
+        clean_all_plants(farm);
+        plant_longer_mutition(farm, longer);
+    }
+    if(!check_shorter_plant(farm, shorter)){
+        clean_short_mutations(farm);
+        plant_shorter_mutition(farm, shorter)
+    }
+    clean_two_mutition(farm)
+}
+
+function breed_three(parent) {
+    var farm = Game.ObjectsById[2].minigame;
+    maximize_soil(farm)
+    parent = plant_mapping[parent];
+    if (!check_three_mutition(farm, parent)){ 
+        clean_all_plants(farm);
+        plant_three_mutition(farm, parent);
+    }
+    clean_three_mutition(farm)
+}
+
+// Plants breed self or breed cross along the edges of the 8x8 farm
+function side_plant_eight_mutition(farm){
+    // Select plant that is not unlocked
+    for (var plant in plant_breeding) {
+        if(farm.plants[plant].unlocked == 0 && !plant_growing(farm, plant) && parents_unlocked(farm, plant_breeding[plant]) && (plant_breeding[plant].method == 'Self' || plant_breeding[plant].method == 'Cross') && plant != "duketater"){
+            if(plant_breeding[plant].method == 'Self'){
+                side_breed(plant_breeding[plant].parent, plant_breeding[plant].parent);
+            }
+            else if(plant_breeding[plant].method == 'Cross'){
+                side_breed(plant_breeding[plant].parent1, plant_breeding[plant].parent2);
+            }
+            break;
+        }
+    }
+
+}
+
+
+
+function breed_eight(parent) {
+    var farm = Game.ObjectsById[2].minigame;
+    maximize_soil(farm)
+    parent = plant_mapping[parent];
+    if (!check_eight_mutition(farm, parent)){ 
+        clean_all_plants(farm);
+        plant_eight_mutition(farm, parent);
+    }
+    side_plant_eight_mutition(farm)
+    clean_eight_mutition(farm)
+}
+
+
+
+function breed_three_by_three(parent1, parent2) {
+    var farm = Game.ObjectsById[2].minigame;
+    maximize_soil(farm)
+    new_ordering = get_long_short(parent1, parent2)
+    longer = new_ordering[0]
+    shorter = new_ordering[1]
+    if (!check_longer_plant_3x3(farm, longer)){ 
+        clean_all_plants(farm);
+        plant_longer_mutition_3x3(farm, longer);
+    }
+    if(!check_shorter_plant_3x3(farm, shorter)){
+        clean_short_mutations_3x3(farm);
+        plant_shorter_mutition_3x3(farm, shorter)
+    }
+    clean_two_mutition_3x3(farm)
+}
+
+// Checks if a plant with a given name is currently in the farm
+function plant_growing(farm, plant){
+    plant = plant_mapping[plant];
+    for (let i = 0; i < 6; i++) {
+        for (let j = 0; j < 6; j++){
+            var tile = farm.plot[j][i];
+            if (tile[0]-1 == plant){
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+function parents_unlocked(farm, parents){
+    if (parents.method == 'Spawn' || parents.method == 'meddleweed'){
+        return true;
+    }
+    else if (parents.method == 'Self' || parents.method == 'Three' || parents.method == 'Eight'){
+        if (farm.plants[parents.parent].unlocked == 1){
+            return true;
+        }
+    }
+    else{
+        if(farm.plants[parents.parent1].unlocked == 1 && farm.plants[parents.parent2].unlocked == 1){
+            return true;
+        }
+    }
+
+}
+
+var get_all_plants = setInterval(function() {
+    var farm = Game.ObjectsById[2].minigame;
+    // iterate through plant_breeding
+    var growing = false;
+    
+    for (var plant in plant_breeding) {
+        if(farm.plants[plant].unlocked == 0 && !plant_growing(farm, plant) && parents_unlocked(farm, plant_breeding[plant])){
+            growing = true;
+            if(plant_breeding[plant].method == 'Spawn'){
+                spawn();
+            }
+            if(plant_breeding[plant].method == 'meddleweed'){
+                meddleweed();
+            }
+            else if(plant_breeding[plant].method == 'Self'){
+                breed_self(plant_breeding[plant].parent);
+            }
+            else if(plant_breeding[plant].method == 'Cross'){
+                breed_cross(plant_breeding[plant].parent1, plant_breeding[plant].parent2);
+            }
+            else if(plant_breeding[plant].method == 'Three'){
+                breed_three(plant_breeding[plant].parent);
+            }
+            else if(plant_breeding[plant].method == 'Eight'){
+                breed_eight(plant_breeding[plant].parent);
+            }
+            else if(plant_breeding[plant].method == '3x3'){
+                breed_three_by_three(plant_breeding[plant].parent1, plant_breeding[plant].parent2);
+            }
+            break;
+        }
+    }
+    if (!all_seeds_unlocked()){
+        harvest_unlocked(farm);
+    }
+    
+    if(!growing && MAXIMIZE_SUGAR_LUMPS && !all_seeds_unlocked()){
+        clean_all_plants(farm);
+        maximize_soil(farm);
+    }
+    if(all_seeds_unlocked()){
+        if(MAXIMIZE_SUGAR_LUMPS && Game.lumps <= 100){
+            farm.convert();
+        }
+        else{
+            farm_endgame();
+            return;
+        }
+    }
+}, 10000);
+
+
+
