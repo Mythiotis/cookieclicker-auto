@@ -10,6 +10,7 @@
 //   CCAuto.forecast(10)  next 10 Force the Hand of Fate outcomes
 //   CCAuto.snapshot()    JSON for strategy_sim/run_strategies.py
 //   CCAuto.popWrinklers()  pop all non-shiny wrinklers (before ascending)
+//   CCAuto.resetPanel()  put the status window back to its default place
 //   CCAuto.cfg.X = ...   change a setting live
 //
 // Strategy defaults come from strategy_sim/ (see strategy_sim/results.md).
@@ -331,7 +332,7 @@ function grimoireTick() {
     if (!M) return;
     var cost = M.getSpellCost(M.spells['hand of fate']);
     var nxt = fthofOutcome(0);
-    note('spell', 'next: ' + (nxt.win ? '' : 'backfire ') + nxt.out + ' | magic ' + Math.floor(M.magic) + '/' + M.magicM);
+    note('spell', (nxt.win ? '' : 'backfire: ') + nxt.out + ' · magic ' + Math.floor(M.magic) + '/' + M.magicM);
     var P = cpsBuffMult();
     if (P >= cfg.COMBO_THRESHOLD && isGood(nxt) && M.magic >= cost) {
         log('Combo x' + Beautify(P) + ': casting FtHoF -> ' + nxt.out);
@@ -874,27 +875,103 @@ function lumpTick() {
 // ---------------------------------------------------------------------
 // Status panel and snapshot
 // ---------------------------------------------------------------------
-var panel = null;
+// Draggable status window. Drag it by its title bar, "–" folds it to the
+// title bar. Position and folded state are remembered between page loads.
+var panel = null, panelBody = null;
+var PANEL_KEY = 'CCAutoPanel';
+var LABELS = {
+    spell: 'Next spell (Force the Hand of Fate)',
+    shop: 'Shop',
+    orbs: 'Dragon Orbs',
+    pantheon: 'Pantheon',
+    season: 'Season',
+    garden: 'Garden'
+};
+function panelState() {
+    try { return JSON.parse(localStorage.getItem(PANEL_KEY)) || {}; } catch (e) { return {}; }
+}
+function savePanelState(st) {
+    try { localStorage.setItem(PANEL_KEY, JSON.stringify(st)); } catch (e) {}
+}
+function buildPanel() {
+    var st = panelState();
+    panel = document.createElement('div');
+    panel.id = 'ccautoPanel';
+    // default: over the building pictures in the middle column (decoration only),
+    // away from Krumblor / Santa (bottom left) and the menu buttons (top)
+    var left = typeof st.left === 'number' ? st.left : Math.round(window.innerWidth * 0.36);
+    var top = typeof st.top === 'number' ? st.top : Math.round(window.innerHeight * 0.38);
+    left = Math.max(0, Math.min(window.innerWidth - 60, left));      // keep it on screen
+    top = Math.max(0, Math.min(window.innerHeight - 24, top));
+    panel.style.cssText = 'position:fixed;z-index:100000000;width:300px;background:rgba(20,12,8,0.88);' +
+        'color:#f6e7d6;font:12px/1.45 sans-serif;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.5);' +
+        'border:1px solid rgba(255,220,170,.25);user-select:none;left:' + left + 'px;top:' + top + 'px;';
+    var head = document.createElement('div');
+    head.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 8px;cursor:move;' +
+        'background:rgba(255,220,170,.12);border-radius:8px 8px 0 0;font-weight:bold;';
+    head.innerHTML = '<span style="flex:1">🍪 CCAuto <span style="font-weight:normal;opacity:.6">drag to move</span></span>';
+    var fold = document.createElement('span');
+    fold.style.cssText = 'cursor:pointer;padding:0 6px;font-size:14px;';
+    fold.title = 'fold / unfold';
+    head.appendChild(fold);
+    panelBody = document.createElement('div');
+    panelBody.style.cssText = 'padding:6px 8px;';
+    panel.appendChild(head);
+    panel.appendChild(panelBody);
+    document.body.appendChild(panel);
+
+    function setFolded(f) {
+        panelBody.style.display = f ? 'none' : 'block';
+        fold.textContent = f ? '+' : '–';
+        var s2 = panelState(); s2.folded = f; savePanelState(s2);
+    }
+    setFolded(!!st.folded);
+    fold.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+    fold.addEventListener('click', function () { setFolded(panelBody.style.display != 'none'); });
+
+    head.addEventListener('mousedown', function (e) {
+        var dx = e.clientX - panel.offsetLeft, dy = e.clientY - panel.offsetTop;
+        function move(ev) {
+            var x = Math.max(0, Math.min(window.innerWidth - 60, ev.clientX - dx));
+            var y = Math.max(0, Math.min(window.innerHeight - 24, ev.clientY - dy));
+            panel.style.left = x + 'px'; panel.style.top = y + 'px';
+        }
+        function up() {
+            document.removeEventListener('mousemove', move);
+            document.removeEventListener('mouseup', up);
+            var s3 = panelState(); s3.left = panel.offsetLeft; s3.top = panel.offsetTop; savePanelState(s3);
+        }
+        document.addEventListener('mousemove', move);
+        document.addEventListener('mouseup', up);
+        e.preventDefault();
+    });
+}
+function row(label, value, hint) {
+    return '<div style="display:flex;gap:8px;justify-content:space-between"' + (hint ? ' title="' + hint + '"' : '') + '>' +
+        '<span style="opacity:.7">' + label + '</span><span style="text-align:right">' + value + '</span></div>';
+}
 function panelTick() {
     if (!cfg.SHOW_PANEL) { if (panel) { panel.remove(); panel = null; } return; }
-    if (!panel) {
-        panel = document.createElement('div');
-        panel.id = 'ccautoPanel';
-        panel.style.cssText = 'position:fixed;left:4px;bottom:4px;z-index:100000000;background:rgba(0,0,0,0.75);' +
-            'color:#fff;font:11px monospace;padding:4px 6px;border-radius:4px;pointer-events:none;max-width:360px;';
-        document.body.appendChild(panel);
-    }
-    var wr = 0;
-    for (var i in Game.wrinklers) if (Game.wrinklers[i].phase == 2) wr += Game.wrinklers[i].sucked;
-    var lines = [
-        'CCAuto  bank ' + Beautify(Game.cookies) + '  reserve ' + Beautify(bankReserve()),
-        'wrinklers hold ' + Beautify(wr) + '  buffs x' + Beautify(cpsBuffMult(), 1) + ' cps, x' + Beautify(clickBuffMult(), 1) + ' click'
+    if (!panel) buildPanel();
+    if (panelBody.style.display == 'none') return;
+    var wr = 0, wn = 0;
+    for (var i in Game.wrinklers) if (Game.wrinklers[i].phase == 2) { wr += Game.wrinklers[i].sucked; wn++; }
+    var reserve = bankReserve();
+    var html = [
+        row('Cookies in bank', Beautify(Game.cookies)),
+        row('Kept back (not spent)', Beautify(reserve), 'Money the shop never spends: enough for a full Lucky! payout and for selling/rebuying buildings during combos'),
+        row('Free to spend', Beautify(Math.max(0, Game.cookies - reserve))),
+        row('Wrinklers (' + wn + ') are holding', Beautify(wr), 'Cookies eaten by wrinklers. You get them back with a bonus when they are popped'),
+        row('Production boost now', '×' + Beautify(cpsBuffMult(), 1), 'Product of all active production buffs (Frenzy, Building special, ...)'),
+        row('Click boost now', '×' + Beautify(clickBuffMult(), 1), 'Product of all active click buffs (Click frenzy, Godzamok, ...)')
     ];
-    for (var k in stateText) lines.push(k + ': ' + stateText[k]);
-    panel.innerHTML = lines.join('<br>');
+    html.push('<div style="border-top:1px solid rgba(255,220,170,.2);margin:5px 0"></div>');
+    for (var k in stateText) html.push(row(LABELS[k] || k, stateText[k]));
+    panelBody.innerHTML = html.join('');
 }
 
 A.status = function () { console.log(panel ? panel.innerText : JSON.stringify(stateText)); };
+A.resetPanel = function () { savePanelState({}); if (panel) { panel.remove(); panel = null; } };
 
 A.snapshot = function () {
     var M = minigame('Wizard tower');

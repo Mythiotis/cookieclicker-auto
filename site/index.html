@@ -134,7 +134,7 @@ footer{padding:40px 0 60px;color:var(--muted);font-size:14px;text-align:center}
     <div class="step"><h3>Load the script</h3><p>Drag this to your bookmarks bar and click it on the game page:</p>
       <a class="bookmarklet" id="bm" href="#">🍪 CCAuto</a>
       <p style="margin-top:10px">…or <a href="#" id="copyBtn">copy the script</a> and paste it into the console (F12).</p></div>
-    <div class="step"><h3>Lean back</h3><p>A small panel appears bottom left. Change any setting live through <code>CCAuto.cfg</code>, and stop it with <code>CCAuto.stop()</code>.</p></div>
+    <div class="step"><h3>Lean back</h3><p>A small <b>CCAuto</b> window shows what it's doing. Drag it by its title bar wherever it's out of the way, and fold it with <b>–</b>. Stop everything with <code>CCAuto.stop()</code>.</p></div>
   </div>
 </section>
 
@@ -176,6 +176,7 @@ footer{padding:40px 0 60px;color:var(--muted);font-size:14px;text-align:center}
     <tr><td><code>CCAuto.stop()</code> / <code>CCAuto.start()</code></td><td>Pause and resume everything</td></tr>
     <tr><td><code>CCAuto.status()</code></td><td>Print the panel's state</td></tr>
     <tr><td><code>CCAuto.forecast(10)</code></td><td>The next 10 Force the Hand of Fate outcomes</td></tr>
+    <tr><td><code>CCAuto.resetPanel()</code></td><td>Put the status window back in its default place</td></tr>
     <tr><td><code>CCAuto.snapshot()</code></td><td>Your save's numbers as JSON, for re-running the simulator</td></tr>
     <tr><td><code>CCAuto.popWrinklers()</code></td><td>Pop all non-shiny wrinklers (before ascending)</td></tr>
     <tr><td><code>CCAuto.cfg.GRIMOIRE = 'off'</code></td><td>Any setting can be changed live</td></tr>
