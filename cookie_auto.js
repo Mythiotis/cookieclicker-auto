@@ -49,6 +49,7 @@ A.cfg = {
     GODZ_ROUNDS: 30,             // sell/rebuy rounds per click buff (each adds +1%/building)
     GODZ_BATCH: 1000,            // buildings sold per round
     GODZ_MAX_BANK_FRACTION: 0.5, // never spend more than this share of the bank on it
+                                 // (rounds shrink to fit: cheapest buildings first)
     GODZ_KEEP: ['Wizard tower', 'Farm', 'Temple', 'Bank'], // never sold (minigames)
 
     // --- Stock market: loans during giant combos ---
@@ -69,6 +70,8 @@ A.cfg = {
     AUTO_BUY_BUILDINGS: true,
     AUTO_BUY_UPGRADES: true,
     LUCKY_RESERVE_SECONDS: 6000,      // bank kept for Lucky! (in s of unbuffed CpS)
+    COMBO_RESERVE_MAX_FRACTION: 0.5,  // money kept for Godzamok / double cast: at most this
+                                      // share of the highest bank seen since start/ascension
     CHEAP_UPGRADE_SECONDS: 600,       // buy non-CpS upgrades costing less than this much CpS
     UPGRADE_BLACKLIST: ['Chocolate egg', 'Elder Pledge', 'Elder Covenant',
         'Revoke Elder Covenant', 'Golden switch [off]', 'Golden switch [on]',
@@ -87,11 +90,18 @@ A.cfg = {
     AUTO_SEASONS: true,
     SEASON_ORDER: ['valentines', 'christmas', 'easter', 'halloween'],
     FINAL_SEASON: 'auto',        // 'auto' = Business day with Startrade, else Christmas
+    // A switch costs 1e9 + 1 min of unbuffed CpS x 1.5^(switches this ascension), and a
+    // season ends after 24 h, so every renewal makes the next one 1.5x dearer.
+    SEASON_MAX_PRICE_SECONDS: 86400,       // collecting drops: pay up to 24 h of unbuffed CpS
+    FINAL_SEASON_MAX_PRICE_SECONDS: 3600,  // renewing the final season: up to 1 h
+    SEASON_FROM_RESERVE_FRACTION: 0.02,    // switch out of the kept-back money if it costs < 2% of the bank
 
     // --- Garden ---
     AUTO_GARDEN: true,
     GARDEN_BONUS_PLANT: 'whiskerbloom', // after research: fill all 36 tiles with this
     GARDEN_MAX_SEED_BANK_FRACTION: 0.05,
+    GARDEN_WOODCHIPS_ON: 2 / 3,  // research: wood chips (x3 mutations) once this share of
+    GARDEN_WOODCHIPS_OFF: 1 / 3, // parents is mature, back to fertilizer below this share
 
     // --- Stock market ---
     AUTO_MARKET: true,
@@ -174,12 +184,27 @@ function sellRebuyLoss(b, n) {
 }
 
 // Cookies the bank always keeps (Lucky! payout, combo money)
+// The combo money is capped by the bank's high-water mark: late game, when the
+// shop has bought buildings close to the bank, full Godzamok rounds cost many
+// banks and an uncapped reserve froze all spending. The high-water mark (not the
+// current bank) keeps the shop from draining the bank step by step.
+var peakBank = 0, peakResets = -1;
+function bankPeak() {
+    if (Game.resets != peakResets) { peakResets = Game.resets; peakBank = 0; }
+    if (Game.cookies > peakBank) peakBank = Game.cookies;
+    return peakBank;
+}
 function bankReserve() {
     // the Lucky! reserve only matters once golden cookies are frequent
     var r = Game.Has('Get lucky') ? Game.unbuffedCps * cfg.LUCKY_RESERVE_SECONDS : 0;
-    r = Math.max(r, godzRoundCost() * cfg.GODZ_ROUNDS * 2 + towerRebuyCost());
-    return r;
+    var combo = godzRoundCost() * cfg.GODZ_ROUNDS * 2 + towerRebuyCost();
+    return Math.max(r, Math.min(combo, bankPeak() * cfg.COMBO_RESERVE_MAX_FRACTION));
 }
+
+// What the shop and the stock market may not touch: the reserve plus money
+// claimed for a pending season switch. Without the claim they spend every free
+// cookie within seconds and the switch never gets enough together.
+function spendReserve() { return bankReserve() + seasonClaim(); }
 
 function aura(name) { return Game.auraMult(name) > 0; }
 
@@ -381,7 +406,8 @@ function doubleCast(M) {
 // Every sale adds +1% click power per building sold to the running Devastation
 // buff (without resetting its timer), so several sell+rebuy rounds stack.
 // ---------------------------------------------------------------------
-function godzBatch() {
+// maxLoss: optional cap on the round's sell+rebuy loss (largest batch that fits)
+function godzBatch(maxLoss) {
     // cheapest buildings first, skipping minigame buildings
     var list = [];
     for (var i in Game.Objects) {
@@ -393,6 +419,17 @@ function godzBatch() {
     var batch = [], n = 0;
     for (var j = 0; j < list.length && n < cfg.GODZ_BATCH; j++) {
         var k = Math.min(list[j].amount, cfg.GODZ_BATCH - n);
+        if (maxLoss !== undefined) {
+            // the loss grows with k: binary search the most that still fits
+            var lo = 0, hi = k;
+            while (lo < hi) {
+                var mid = Math.ceil((lo + hi) / 2);
+                if (sellRebuyLoss(list[j], mid) <= maxLoss) lo = mid; else hi = mid - 1;
+            }
+            k = lo;
+            if (k <= 0) break;          // the next buildings are pricier still
+            maxLoss -= sellRebuyLoss(list[j], k);
+        }
         batch.push([list[j], k]);
         n += k;
     }
@@ -408,10 +445,10 @@ function godzamokTick() {
     if (!cfg.GODZAMOK || !Game.hasGod || !Game.hasGod('ruin')) return;
     if (Game.hasBuff('Devastation')) return;
     if (clickBuffMult() < cfg.GODZ_MIN_CLICK_MULT) return;
-    var batch = godzBatch();
-    var cost = godzRoundCost();
-    var budget = Game.cookies * cfg.GODZ_MAX_BANK_FRACTION;
-    var rounds = cost > 0 ? Math.min(cfg.GODZ_ROUNDS, Math.floor(budget / cost)) : cfg.GODZ_ROUNDS;
+    // split the budget over all rounds; each round sells what its share pays for
+    var batch = godzBatch(Game.cookies * cfg.GODZ_MAX_BANK_FRACTION / cfg.GODZ_ROUNDS);
+    if (!batch.length) return;
+    var rounds = cfg.GODZ_ROUNDS;
     for (var r = 0; r < rounds; r++) {
         for (var i = 0; i < batch.length; i++) sellBuilding(batch[i][0], batch[i][1]);
         for (var j = 0; j < batch.length; j++) buyBuilding(batch[j][0], batch[j][1]);
@@ -542,7 +579,7 @@ function shopTick() {
     Game.CalculateGains();
     var cps = Math.max(Game.cookiesPs, 1e-9);
     for (var guard = 0; guard < 100; guard++) {
-        var budget = Game.cookies - bankReserve();
+        var budget = Game.cookies - spendReserve();
         var best = null, bestPP = Infinity, kind = '';
         if (cfg.AUTO_BUY_UPGRADES) {
             for (var i = 0; i < Game.UpgradesInStore.length; i++) {
@@ -643,7 +680,7 @@ function finalSeason() {
 function santaTick() {
     if (Game.season != 'christmas' || !Game.Has('A festive hat') || Game.santaLevel >= 14) return;
     var moni = Math.pow(Game.santaLevel + 1, Game.santaLevel + 1);
-    if (Game.cookies - bankReserve() <= moni) return;
+    if (Game.cookies - bankReserve() <= moni && moni > Game.cookies * cfg.SEASON_FROM_RESERVE_FRACTION) return;
     Game.Spend(moni);
     Game.santaLevel = (Game.santaLevel + 1) % 15;
     if (Game.santaLevel == 14) Game.Unlock("Santa's dominion");
@@ -655,21 +692,44 @@ function santaTick() {
     if (Game.santaLevel >= 14) Game.Win('All hail Santa');
     log('Santa level ' + Game.santaLevel);
 }
-function seasonTick() {
-    santaTick();
-    if (!cfg.AUTO_SEASONS || !Game.Has('Season switcher') || comboRunning()) return;
-    var target = null;
+// The season the script wants now, its trigger and price; null if nothing to do
+function seasonPlan() {
+    if (!cfg.AUTO_SEASONS || !Game.Has('Season switcher')) return null;
+    var target = null, collecting = true;
     for (var i = 0; i < cfg.SEASON_ORDER.length; i++) {
         if (!seasonDone(cfg.SEASON_ORDER[i])) { target = cfg.SEASON_ORDER[i]; break; }
     }
-    if (!target) target = finalSeason();
-    note('season', target + (Game.season == target ? '' : ' (switching)'));
-    if (Game.season == target) return;
+    if (!target) { target = finalSeason(); collecting = false; }
+    if (!Game.seasons[target]) return null;
     var trig = Game.Upgrades[Game.seasons[target].trigger];
-    if (!trig || !trig.unlocked) return;
-    if (Game.cookies - bankReserve() < trig.getPrice()) return;
-    trig.buy(true);
-    log('Season -> ' + target);
+    var price = trig ? trig.getPrice() : Infinity;
+    var cap = Game.unbuffedCps * (collecting ? cfg.SEASON_MAX_PRICE_SECONDS : cfg.FINAL_SEASON_MAX_PRICE_SECONDS);
+    return {
+        target: target, trig: trig, price: price,
+        // switch wanted, possible and not too dear
+        need: Game.season != target && !!trig && !!trig.unlocked && !trig.bought && price <= Math.max(cap, 2e9)
+    };
+}
+function seasonClaim() {
+    var p = seasonPlan();
+    return p && p.need ? p.price : 0;
+}
+function seasonTick() {
+    santaTick();
+    var p = seasonPlan();
+    if (!p) return;
+    if (Game.season == p.target) { note('season', p.target); return; }
+    if (!p.need) {
+        note('season', p.target + ' (switch costs ' + Beautify(p.price) + ', too much: waiting for ascension)');
+        return;
+    }
+    note('season', p.target + ' (switching, needs ' + Beautify(p.price) + ')');
+    if (comboRunning()) return;
+    var free = Game.cookies - bankReserve();
+    if (p.price > free && p.price > Game.cookies * cfg.SEASON_FROM_RESERVE_FRACTION) return;
+    if (Game.cookies < p.price) return;
+    p.trig.buy(true);
+    if (Game.season == p.target) log('Season -> ' + p.target + ' for ' + Beautify(p.price));
 }
 
 // ---------------------------------------------------------------------
@@ -776,7 +836,7 @@ function gardenResearch(G) {
     if (!r) return;
     note('garden', 'researching ' + G.plants[r[0]].name);
     var L = (r[1] == 'empty' || r[1] == 'meddle') ? layoutFor('none') : layoutFor(r[1], r[2], r[3]);
-    var allParentsMature = true, anyParent = false;
+    var parents = 0, matureParents = 0;
     for (var y = 0; y < 6; y++) for (var x = 0; x < 6; x++) {
         if (!G.isTileUnlocked(x, y)) continue;
         var tile = G.plot[y][x], want = L[y][x];
@@ -793,10 +853,9 @@ function gardenResearch(G) {
         }
         if (r[1] == 'empty' && plant && plant.key == 'meddleweed') continue;
         if (want) {
-            anyParent = true;
-            if (plant && plant.key == want) { if (tile[1] < plant.mature) allParentsMature = false; continue; }
+            parents++;
+            if (plant && plant.key == want) { if (tile[1] >= plant.mature) matureParents++; continue; }
             if (plant) G.harvest(x, y);
-            allParentsMature = false;
             plantAt(G, x, y, want);
         } else if (plant) {
             // target tile holding a known plant: clear it
@@ -804,7 +863,15 @@ function gardenResearch(G) {
         }
     }
     if (r[1] == 'empty' || r[1] == 'meddle') setSoil(G, 'fertilizer');
-    else setSoil(G, anyParent && allParentsMature && G.parent.amount >= 300 ? 'woodchips' : 'fertilizer');
+    else {
+        var share = parents ? matureParents / parents : 0;
+        var onChips = G.soil == G.soils.woodchips.id;
+        var chips = G.parent.amount >= 300 &&
+            (share >= cfg.GARDEN_WOODCHIPS_ON || (onChips && share >= cfg.GARDEN_WOODCHIPS_OFF));
+        setSoil(G, chips ? 'woodchips' : 'fertilizer');
+        note('garden', 'researching ' + G.plants[r[0]].name + ' · ' + matureParents + '/' + parents +
+            ' parents mature · ' + (chips ? 'wood chips' : 'fertilizer'));
+    }
 }
 
 function gardenBonus(G) {
@@ -835,7 +902,7 @@ function marketTick() {
     var M = minigame('Bank');
     if (!M) return;
     if (cfg.MARKET_HIRE_BROKERS && M.brokers < M.getMaxBrokers() &&
-        M.getBrokerPrice() < (Game.cookies - bankReserve()) * 0.1) {
+        M.getBrokerPrice() < (Game.cookies - spendReserve()) * 0.1) {
         Game.Spend(M.getBrokerPrice()); M.brokers++;
     }
     for (var i = 0; i < M.goodsById.length; i++) {
@@ -848,7 +915,7 @@ function marketTick() {
             var room = M.getGoodMaxStock(g) - g.stock;
             if (room <= 0) continue;
             var unit = Game.cookiesPsRawHighest * g.val * (1 + 0.01 * (20 * Math.pow(0.95, M.brokers)));
-            var n = Math.min(room, Math.floor(Math.max(0, Game.cookies - bankReserve()) / unit));
+            var n = Math.min(room, Math.floor(Math.max(0, Game.cookies - spendReserve()) / unit));
             if (n > 0) M.buyGood(i, n);
         }
     }
@@ -956,10 +1023,10 @@ function panelTick() {
     if (panelBody.style.display == 'none') return;
     var wr = 0, wn = 0;
     for (var i in Game.wrinklers) if (Game.wrinklers[i].phase == 2) { wr += Game.wrinklers[i].sucked; wn++; }
-    var reserve = bankReserve();
+    var reserve = spendReserve(), claim = seasonClaim();
     var html = [
         row('Cookies in bank', Beautify(Game.cookies)),
-        row('Kept back (not spent)', Beautify(reserve), 'Money the shop never spends: enough for a full Lucky! payout and for selling/rebuying buildings during combos'),
+        row('Kept back (not spent)', Beautify(reserve), 'Money the shop and stock market never spend: enough for a full Lucky! payout and for selling/rebuying buildings during combos' + (claim ? ', plus ' + Beautify(claim) + ' set aside for the next season switch' : '')),
         row('Free to spend', Beautify(Math.max(0, Game.cookies - reserve))),
         row('Wrinklers (' + wn + ') are holding', Beautify(wr), 'Cookies eaten by wrinklers. You get them back with a bonus when they are popped'),
         row('Production boost now', '×' + Beautify(cpsBuffMult(), 1), 'Product of all active production buffs (Frenzy, Building special, ...)'),
@@ -1037,8 +1104,9 @@ A.stop = function () {
 A._t = {fthofOutcome: fthofOutcome, doubleCast: doubleCast, godzamokTick: godzamokTick,
     orbsTick: orbsTick, gardenTick: gardenTick, marketTick: marketTick, seasonTick: seasonTick,
     shopTick: shopTick, pantheonTick: pantheonTick, dragonTick: dragonTick, grimoireTick: grimoireTick,
-    wrinklerTick: wrinklerTick, lumpTick: lumpTick, elderTick: elderTick, bankReserve: bankReserve,
-    godzRoundCost: godzRoundCost, state: stateText};
+    wrinklerTick: wrinklerTick, lumpTick: lumpTick, elderTick: elderTick, bankReserve: bankReserve, seasonClaim: seasonClaim, seasonPlan: seasonPlan,
+    godzRoundCost: godzRoundCost, godzBatch: godzBatch, bankPeak: bankPeak,
+    resetPeak: function () { peakBank = 0; }, state: stateText};
 
 A.start();
 })();

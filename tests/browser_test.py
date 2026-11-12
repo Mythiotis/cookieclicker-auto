@@ -113,6 +113,97 @@ def main():
           return {auras: auras, golden_spawned: n, ticks: tries};
         }""")
 
+        # ---- 4b. season switch is not starved by the shop / stock market
+        results['season_starvation'] = page.evaluate("""() => {
+          var out = {};
+          Game.buffs = {};
+          Game.season = ''; Game.seasonUses = 3; Game.computeSeasonPrices();
+          for (var k in Game.seasons) { var u = Game.Upgrades[Game.seasons[k].trigger]; u.bought = 0; Game.Unlock(u.name); }
+          var p = CCAuto._t.seasonPlan();
+          out.target = p.target; out.price = p.price;
+          // bank = reserve + exactly the switch price; the market wants to buy everything
+          Game.cookies = CCAuto._t.bankReserve() + p.price * 1.01;
+          var B = Game.Objects.Bank.minigame;
+          for (var i = 0; i < B.goodsById.length; i++) { B.goodsById[i].val = 1; B.goodsById[i].stock = 0; }
+          CCAuto._t.marketTick();
+          CCAuto._t.shopTick();
+          out.claim_left = Game.cookies >= CCAuto._t.bankReserve() + p.price;
+          CCAuto._t.seasonTick();
+          out.season = Game.season;
+          // exponential price: after 30 switches the final-season renewal is skipped
+          Game.seasonUses = 30; Game.computeSeasonPrices();
+          for (var k in Game.seasons) { var u = Game.Upgrades[Game.seasons[k].trigger]; u.bought = 0; Game.Unlock(u.name); }
+          Game.season = '';
+          out.claim_when_too_dear = CCAuto._t.seasonClaim();
+          Game.seasonUses = 0; Game.computeSeasonPrices(); Game.season = '';
+          for (var k in Game.seasons) { var u = Game.Upgrades[Game.seasons[k].trigger]; u.bought = 0; Game.Unlock(u.name); }
+          Game.cookies = 1e90;
+          return out;
+        }""")
+        r = results['season_starvation']
+        r['ok'] = r['claim_left'] and r['season'] == r['target'] and r['claim_when_too_dear'] == 0
+
+        # ---- 4c. reserve when combo money would exceed the bank (late game, screenshot case)
+        results['reserve_cap'] = page.evaluate("""() => {
+          var out = {}, T = CCAuto._t;
+          Game.buffs = {};
+          var lucky = CCAuto.cfg.LUCKY_RESERVE_SECONDS;
+          CCAuto.cfg.LUCKY_RESERVE_SECONDS = 0;  // late game it is tiny next to the bank
+          var t = Game.Objects['Wizard tower'];
+          var need = t.getReverseSumPrice(t.amount - 10) / t.getSellMultiplier() * (1 - t.getSellMultiplier());
+          Game.cookies = need / 40;              // combo money ~40 banks, as in the screenshot
+          T.resetPeak();
+          out.bank = Game.cookies; out.uncapped_need = need;
+          out.reserve = T.bankReserve();
+          out.reserve_le_half_bank = out.reserve <= Game.cookies * 0.5 * 1.0001;
+          var b0 = 0; for (var i in Game.Objects) b0 += Game.Objects[i].amount;
+          var u0 = Game.UpgradesOwned;
+          T.shopTick();
+          var b1 = 0; for (var i in Game.Objects) b1 += Game.Objects[i].amount;
+          out.shop_bought = (b1 - b0) + (Game.UpgradesOwned - u0);
+          out.bank_after_shop_ge_half_peak = Game.cookies >= T.bankPeak() * 0.5 * 0.999;
+          var batch = T.godzBatch(Game.cookies * 0.5 / 30), n = 0;
+          for (var j = 0; j < batch.length; j++) n += batch[j][1];
+          out.godz_units_per_round = n;
+          out.ok = out.reserve_le_half_bank && out.shop_bought > 0 && out.bank_after_shop_ge_half_peak && n > 0;
+          CCAuto.cfg.LUCKY_RESERVE_SECONDS = lucky;
+          Game.cookies = 1e90; T.resetPeak();
+          return out;
+        }""")
+
+        # ---- 4d. garden research: wood chips once 2/3 of the parents are mature
+        results['woodchips'] = page.evaluate("""() => {
+          var G = Game.Objects.Farm.minigame, out = {};
+          Game.buffs = {};
+          for (var k in G.plants) G.plants[k].unlocked = 1;
+          G.plants.whiteMildew.unlocked = 0; G.getUnlockedN();
+          for (var y = 0; y < 6; y++) for (var x = 0; x < 6; x++) G.plot[y][x] = [0, 0];
+          G.soil = G.soils.fertilizer.id; G.nextSoil = 0;
+          CCAuto._t.gardenTick();
+          var tiles = [];
+          for (var y = 0; y < 6; y++) for (var x = 0; x < 6; x++) if (G.plot[y][x][0] > 0) tiles.push([x, y]);
+          out.parents_planted = tiles.length;
+          var mat = G.plants.brownMold.mature;
+          // 7 of 12 mature: stays on fertilizer
+          tiles.forEach((t, i) => G.plot[t[1]][t[0]][1] = i < 7 ? mat : 0);
+          G.nextSoil = 0; CCAuto._t.gardenTick();
+          out.soil_at_7 = G.soilsById[G.soil].key;
+          // 8 of 12 mature: wood chips
+          tiles.forEach((t, i) => G.plot[t[1]][t[0]][1] = i < 8 ? mat : 0);
+          G.nextSoil = 0; CCAuto._t.gardenTick();
+          out.soil_at_8 = G.soilsById[G.soil].key;
+          // 5 of 12 still above 1/3: keeps wood chips
+          tiles.forEach((t, i) => G.plot[t[1]][t[0]][1] = i < 5 ? mat : 0);
+          G.nextSoil = 0; CCAuto._t.gardenTick();
+          out.soil_at_5 = G.soilsById[G.soil].key;
+          out.note = CCAuto._t.state.garden;
+          out.ok = out.parents_planted == 12 && out.soil_at_7 == 'fertilizer' && out.soil_at_8 == 'woodchips' && out.soil_at_5 == 'woodchips';
+          for (var k in G.plants) G.plants[k].unlocked = 0;
+          G.plants.bakerWheat.unlocked = 1; G.getUnlockedN();
+          for (var y = 0; y < 6; y++) for (var x = 0; x < 6; x++) G.plot[y][x] = [0, 0];
+          return out;
+        }""")
+
         # ---- 5. shop, seasons, garden, market, grimoire tick
         results['ticks'] = page.evaluate("""() => {
           var out = {};
