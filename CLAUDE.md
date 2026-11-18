@@ -23,7 +23,7 @@ The game source can be fetched from `https://orteil.dashnet.org/cookieclicker/ma
 
 Repo: `git@github.com:Mythiotis/cookieclicker-auto.git` (public, hyphen!). Site: https://mythiotis.github.io/cookieclicker-auto/. The README is visitor-facing: no maintainer/publishing instructions in it.
 
-## History (six sessions, Oct 31 to Nov 12 2026)
+## History (sessions Oct 31 to Nov 18 2026)
 
 1. **Origin.** Forked https://github.com/SteeleRobert/CookieClicker-Automation into `auto_script.txt`, adapted for a level-11 farm (a 6×6 plot from level 9, nothing changes above) and the Shimmering veil (`PROTECT_VEIL`: idle play while the veil is up). Explained that the meddleweed phase is intended: Brown Mold and Crumbspore only come from harvesting meddleweed.
 2. **Questions on the old script.** The Elder Covenant flip-flop around Frenzies is a leftover combo trick that only costs money with the veil up. FtHoF wasn't cast on a plain Frenzy because of the veil guard and ×1000 thresholds.
@@ -49,7 +49,7 @@ Repo: `git@github.com:Mythiotis/cookieclicker-auto.git` (public, hyphen!). Site:
 
 ## Open points / ideas
 
-- **Garden research layout:** parents sit in rows 1 and 4, all other tiles are targets. Each parent is replanted on its own when it dies, and planting is skipped during CpS buffs or when a seed costs > 5% of the bank, so parent ages drift apart. That is intended: mutations only count *mature* neighbours (`neighsM` in `minigameGarden.js`), and per-tile replanting maximises the time each parent is mature. Wood chips go on at ≥ 2/3 mature parents and off below 1/3 (hysteresis, because soil changes have a 10 min cooldown).
+- **Garden research (synchronised, Nov 18):** mutations only count *mature* neighbours, so parents are timed in garden ticks (`plantTicks()`: (mature-age)/(ageTick+ageTickR/2) × tile boost). The longest-lived parent type is the anchor: anchors are planted as one cohort and replanted only when all are gone (a straggler may join if it matures at most ~10% of the window late). The other parent is planted so it matures when the anchors do, and replanted while it can still mature a tick before the first anchor dies. The user designed this after Juicy Queenbeet (8 mature queenbeets, each mature only 20% of its life) stalled for days with per-tile replanting. The Juicy Queenbeet layout is a 5×5 block with 4 centres (21 seeds; 4 is the maximum number of 8-neighbour targets). Wood chips go on at ≥ 2/3 mature parents and off below 1/3 (10 min soil cooldown).
 - Whether buying buildings close to the bank level is right at all late game: the shop's payback uses base production, but income is dominated by combos. That's worth a simulator run.
 - Run the third cost scenario of the strategy search, or a search fitted to the user's own `CCAuto.snapshot()`.
 - `auto_script.txt` could be deleted once the user agrees.

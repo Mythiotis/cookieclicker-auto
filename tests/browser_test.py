@@ -204,6 +204,70 @@ def main():
           return out;
         }""")
 
+        # ---- 4e. synchronised research planting
+        results['garden_sync'] = page.evaluate("""() => {
+          var G = Game.Objects.Farm.minigame, T = CCAuto._t, out = {};
+          Game.buffs = {};
+          function only(key) {
+            for (var k in G.plants) G.plants[k].unlocked = 1;
+            G.plants[key].unlocked = 0; G.getUnlockedN();
+            for (var y = 0; y < 6; y++) for (var x = 0; x < 6; x++) G.plot[y][x] = [0, 0];
+            G.computeBoostPlot();
+          }
+          function grid() { return G.plot.map(r => r.map(t => t[0] > 0 ? G.plantsById[t[0] - 1].key : null)); }
+          function count(key) { var n = 0; grid().forEach(r => r.forEach(k => { if (k == key) n++; })); return n; }
+
+          // juicy queenbeet: 21 queenbeets in a 5x5 block, 4 centres empty
+          only('queenbeetLump');
+          T.gardenTick();
+          var g = grid();
+          out.qb_planted = count('queenbeet');
+          out.qb_centres_empty = [[1,1],[1,3],[3,1],[3,3]].every(c => g[c[0]][c[1]] == null);
+          out.qb_spare_empty = [0,1,2,3,4,5].every(i => g[5][i] == null && g[i][5] == null);
+          // one dies mid-cohort: not replanted until the whole cohort is gone
+          for (var y = 0; y < 5; y++) for (var x = 0; x < 5; x++) if (G.plot[y][x][0]) G.plot[y][x][1] = 60;
+          G.plot[0][0] = [0, 0];
+          T.gardenTick();
+          out.qb_straggler_waits = G.plot[0][0][0] == 0;
+          out.qb_note = T.state.garden;
+          for (var y = 0; y < 6; y++) for (var x = 0; x < 6; x++) G.plot[y][x] = [0, 0];
+          T.gardenTick();
+          out.qb_new_round = count('queenbeet');
+
+          // elderwort = shimmerlily x cronerice: cronerice (long-lived) first,
+          // shimmerlily only when it would mature together with the cronerice
+          only('elderwort');
+          T.gardenTick();
+          out.ew_first = {cronerice: count('cronerice'), shimmerlily: count('shimmerlily')};
+          var cr = G.plants.cronerice, sl = G.plants.shimmerlily;
+          var slT = T.plantTicks(G, 0, 1, sl, 0).mature;
+          var rate = (cr.ageTick + cr.ageTickR / 2);
+          function setCron(age) { for (var y = 0; y < 6; y++) for (var x = 0; x < 6; x++) { var t = G.plot[y][x]; if (t[0] == cr.id + 1) t[1] = age; } }
+          setCron(Math.floor(cr.mature - rate * (slT + 3)));   // cronerice ~3 ticks too far away
+          T.gardenTick();
+          out.ew_too_early = count('shimmerlily');
+          setCron(Math.ceil(cr.mature - rate * (slT - 0.5)));   // now they would mature together
+          T.gardenTick();
+          out.ew_synced = count('shimmerlily');
+          // shimmerlily died, cronerice close to death: no replant
+          for (var y = 0; y < 6; y++) for (var x = 0; x < 6; x++) if (G.plot[y][x][0] == sl.id + 1) G.plot[y][x] = [0, 0];
+          setCron(97);
+          T.gardenTick();
+          out.ew_no_late_replant = count('shimmerlily');
+          // cronerice young again (mature, long life left): shimmerlily replanted
+          setCron(cr.mature + 2);
+          T.gardenTick();
+          out.ew_replant = count('shimmerlily');
+
+          out.ok = out.qb_planted == 21 && out.qb_centres_empty && out.qb_spare_empty && out.qb_straggler_waits &&
+            out.qb_new_round == 21 && out.ew_first.cronerice == 6 && out.ew_first.shimmerlily == 0 &&
+            out.ew_too_early == 0 && out.ew_synced == 6 && out.ew_no_late_replant == 0 && out.ew_replant == 6;
+          for (var k in G.plants) G.plants[k].unlocked = 0;
+          G.plants.bakerWheat.unlocked = 1; G.getUnlockedN();
+          for (var y = 0; y < 6; y++) for (var x = 0; x < 6; x++) G.plot[y][x] = [0, 0];
+          return out;
+        }""")
+
         # ---- 5. shop, seasons, garden, market, grimoire tick
         results['ticks'] = page.evaluate("""() => {
           var out = {};

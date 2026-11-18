@@ -736,7 +736,7 @@ function seasonTick() {
 // 9. Garden: research every seed, then the bonus layout
 // ---------------------------------------------------------------------
 // layouts: 'line' = parents in rows 1 and 4 (A on even, B on odd columns),
-// 'ring' = 4 empty centres surrounded by 8 parents, 'rows' = A in rows 0/3,
+// 'ring' = 4 empty centres surrounded by 8 parents (5x5 block), 'rows' = A in rows 0/3,
 // B in rows 2/5, 'empty' = bare plot for weeds, 'meddle' = harvest old meddleweed
 var RECIPES = [
     ['meddleweed', 'empty'],
@@ -780,8 +780,10 @@ function layoutFor(type, a, b) {
     if (type == 'line') {
         for (var x2 = 0; x2 < 6; x2++) { L[1][x2] = x2 % 2 == 0 ? a : b; L[4][x2] = x2 % 2 == 0 ? a : b; }
     } else if (type == 'ring') {
-        for (var y3 = 0; y3 < 6; y3++) for (var x3 = 0; x3 < 6; x3++) L[y3][x3] = a;
-        L[1][1] = L[1][4] = L[4][1] = L[4][4] = null;
+        // 4 targets that each need all 8 neighbours: at most 4 fit (inner 4x4, not
+        // touching), and they fit in a 5x5 block -> 21 parents instead of 32
+        for (var y3 = 0; y3 < 5; y3++) for (var x3 = 0; x3 < 5; x3++) L[y3][x3] = a;
+        L[1][1] = L[1][3] = L[3][1] = L[3][3] = null;
     } else if (type == 'rows') {
         for (var x4 = 0; x4 < 6; x4++) { L[0][x4] = a; L[3][x4] = a; L[2][x4] = b; L[5][x4] = b; }
     } else if (type == 'fill') {
@@ -831,12 +833,46 @@ function currentRecipe(G) {
     return null;
 }
 
+// Expected garden ticks until a plant on (x, y) at the given age matures / dies.
+// Ages grow by ageTick + random*ageTickR per tick, times the tile's age boost.
+function plantTicks(G, x, y, p, age) {
+    var boost = G.plotBoost && G.plotBoost[y] ? G.plotBoost[y][x][0] : 1;
+    var rate = Math.max(1e-6, (p.ageTick + p.ageTickR / 2) * boost * (1 + 0.05 * Game.auraMult('Supreme Intellect')));
+    return {mature: Math.max(0, p.mature - age) / rate, die: p.immortal ? Infinity : Math.max(0, 100 - age) / rate};
+}
+
+// Research with synchronised parents. Mutations only count *mature* neighbours,
+// so all parents should be mature at the same time:
+//  - the longest-lived parent type is the anchor. Anchors are planted together as
+//    a cohort, and only replanted once every anchor is gone (a late straggler is
+//    allowed if it matures at most ~10% of the anchor's mature window late);
+//  - every other parent is planted so it matures when the anchors do (not
+//    earlier), and replanted after it dies as long as it can still mature
+//    before the first anchor dies.
 function gardenResearch(G) {
     var r = currentRecipe(G);
     if (!r) return;
     note('garden', 'researching ' + G.plants[r[0]].name);
-    var L = (r[1] == 'empty' || r[1] == 'meddle') ? layoutFor('none') : layoutFor(r[1], r[2], r[3]);
-    var parents = 0, matureParents = 0;
+    var weeds = r[1] == 'empty' || r[1] == 'meddle';
+    var L = weeds ? layoutFor('none') : layoutFor(r[1], r[2], r[3]);
+
+    // anchor type and the state of the current anchor cohort
+    var anchor = null;
+    if (!weeds) {
+        var a = G.plants[r[2]], b = G.plants[r[3]];
+        anchor = plantTicks(G, 0, 0, b, 0).die > plantTicks(G, 0, 0, a, 0).die ? b.key : a.key;
+    }
+    var anchors = 0, anchorMature = 0, anchorDie = Infinity;
+    if (anchor) for (var y0 = 0; y0 < 6; y0++) for (var x0 = 0; x0 < 6; x0++) {
+        var t0 = G.plot[y0][x0];
+        if (L[y0][x0] != anchor || t0[0] <= 0 || G.plantsById[t0[0] - 1].key != anchor) continue;
+        var e0 = plantTicks(G, x0, y0, G.plants[anchor], t0[1]);
+        anchors++;
+        anchorMature = Math.max(anchorMature, e0.mature);
+        anchorDie = Math.min(anchorDie, e0.die);
+    }
+
+    var parents = 0, matureParents = 0, waiting = 0;
     for (var y = 0; y < 6; y++) for (var x = 0; x < 6; x++) {
         if (!G.isTileUnlocked(x, y)) continue;
         var tile = G.plot[y][x], want = L[y][x];
@@ -852,26 +888,35 @@ function gardenResearch(G) {
             continue;
         }
         if (r[1] == 'empty' && plant && plant.key == 'meddleweed') continue;
-        if (want) {
-            parents++;
-            if (plant && plant.key == want) { if (tile[1] >= plant.mature) matureParents++; continue; }
-            if (plant) G.harvest(x, y);
-            plantAt(G, x, y, want);
-        } else if (plant) {
-            // target tile holding a known plant: clear it
-            G.harvest(x, y);
+        if (!want) {
+            if (plant) G.harvest(x, y);     // target tile holding a known plant: clear it
+            continue;
         }
+        parents++;
+        if (plant && plant.key == want) { if (tile[1] >= plant.mature) matureParents++; continue; }
+        if (plant) G.harvest(x, y);
+        var fresh = plantTicks(G, x, y, G.plants[want], 0), plantNow;
+        if (want == anchor) {
+            var tol = Math.max(1, 0.1 * Math.min(fresh.mature, fresh.die - fresh.mature));
+            plantNow = anchors == 0 || fresh.mature <= anchorMature + tol;
+        } else {
+            // not before the anchors' maturity, and mature at least a tick before they die
+            plantNow = anchors > 0 && fresh.mature >= anchorMature && fresh.mature + 1 <= anchorDie;
+        }
+        if (plantNow) plantAt(G, x, y, want);
+        if (!G.plot[y][x][0]) waiting++;
     }
-    if (r[1] == 'empty' || r[1] == 'meddle') setSoil(G, 'fertilizer');
-    else {
-        var share = parents ? matureParents / parents : 0;
-        var onChips = G.soil == G.soils.woodchips.id;
-        var chips = G.parent.amount >= 300 &&
-            (share >= cfg.GARDEN_WOODCHIPS_ON || (onChips && share >= cfg.GARDEN_WOODCHIPS_OFF));
-        setSoil(G, chips ? 'woodchips' : 'fertilizer');
-        note('garden', 'researching ' + G.plants[r[0]].name + ' · ' + matureParents + '/' + parents +
-            ' parents mature · ' + (chips ? 'wood chips' : 'fertilizer'));
-    }
+    if (weeds) { setSoil(G, 'fertilizer'); return; }
+    var share = parents ? matureParents / parents : 0;
+    var onChips = G.soil == G.soils.woodchips.id;
+    var chips = G.parent.amount >= 300 &&
+        (share >= cfg.GARDEN_WOODCHIPS_ON || (onChips && share >= cfg.GARDEN_WOODCHIPS_OFF));
+    setSoil(G, chips ? 'woodchips' : 'fertilizer');
+    var when = anchors == 0 ? 'new round' :
+        anchorMature > 0 ? 'mature in ~' + Math.ceil(anchorMature) + ' ticks' : 'all mature';
+    note('garden', 'researching ' + G.plants[r[0]].name + ' · ' + matureParents + '/' + parents +
+        ' parents mature (' + when + ')' + (waiting ? ' · ' + waiting + ' waiting to sync' : '') +
+        ' · ' + (chips ? 'wood chips' : 'fertilizer'));
 }
 
 function gardenBonus(G) {
@@ -1105,7 +1150,7 @@ A._t = {fthofOutcome: fthofOutcome, doubleCast: doubleCast, godzamokTick: godzam
     orbsTick: orbsTick, gardenTick: gardenTick, marketTick: marketTick, seasonTick: seasonTick,
     shopTick: shopTick, pantheonTick: pantheonTick, dragonTick: dragonTick, grimoireTick: grimoireTick,
     wrinklerTick: wrinklerTick, lumpTick: lumpTick, elderTick: elderTick, bankReserve: bankReserve, seasonClaim: seasonClaim, seasonPlan: seasonPlan,
-    godzRoundCost: godzRoundCost, godzBatch: godzBatch, bankPeak: bankPeak,
+    godzRoundCost: godzRoundCost, godzBatch: godzBatch, bankPeak: bankPeak, plantTicks: plantTicks,
     resetPeak: function () { peakBank = 0; }, state: stateText};
 
 A.start();
